@@ -9,6 +9,7 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+# Portions copyright Senanur Çetin. Licensed under Apache 2.0 license
 #
 #
 # Chart Service will attempt to make public functions (not prefixed with _) from this module available. Such functions
@@ -275,7 +276,7 @@ def returns(series: pd.Series, obs: Union[Window, int, str] = 1, type: Returns =
     Calculate returns from price series
 
     :param series: time series of prices
-    :param obs: number of observations or relative date e.g. 3d, 1w, 1m ( relative date should be of pattern \d+[dmywDMYW] ).
+    :param obs: number of observations or relative date e.g. 3d, 1w, 1m ( relative date should be of pattern \\d+[dmywDMYW] ).
     :param type: returns type: simple, logarithmic or absolute
     :return: date-based time series of return
 
