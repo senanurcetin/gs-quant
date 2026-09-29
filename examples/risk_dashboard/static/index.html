@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Risk Analytics Dashboard</title>
+  <meta name="description" content="Value at risk, expected shortfall and VaR backtesting, built on gs_quant.timeseries.risk_metrics">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Cpath d=%27M1 12l4-5 3 3 6-8%27 fill=%27none%27 stroke=%27%231f5fbf%27 stroke-width=%272%27/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#results">Skip to results</a>
+  <header class="site-header">
+    <div class="wrap">
+      <h1>Risk Analytics Dashboard</h1>
+      <p class="lede">Value at risk, expected shortfall and model validation for a return series, computed by
+        <code>gs_quant.timeseries.risk_metrics</code>.</p>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="panel controls" aria-labelledby="controls-title">
+      <h2 id="controls-title">Data and model</h2>
+      <form id="controls" autocomplete="off">
+        <div class="field">
+          <label for="scenario">Sample scenario</label>
+          <select id="scenario" name="scenario"></select>
+          <p class="hint" id="scenario-hint"></p>
+        </div>
+
+        <div class="field">
+          <label for="file">Or upload a CSV</label>
+          <input id="file" name="file" type="file" accept=".csv,.txt,text/csv,text/plain">
+          <div class="inline" role="radiogroup" aria-label="What the uploaded values are">
+            <label class="choice"><input type="radio" name="kind" value="returns" checked> Returns</label>
+            <label class="choice"><input type="radio" name="kind" value="prices"> Prices</label>
+          </div>
+          <p class="hint">One value per line, or <code>date,value</code>. Up to 5,000 rows. Returns are simple returns as
+            fractions or percentages (<code>0.012</code> or <code>1.2%</code>).</p>
+        </div>
+
+        <div class="field">
+          <label for="confidence">Confidence level: <output id="confidence-out" for="confidence">95.0%</output></label>
+          <input id="confidence" name="confidence" type="range" min="0.90" max="0.999" step="0.001" value="0.95">
+        </div>
+
+        <div class="field">
+          <label for="method">Estimation method</label>
+          <select id="method" name="method">
+            <option value="historical">Historical</option>
+            <option value="parametric">Parametric (normal)</option>
+            <option value="cornish_fisher">Cornish-Fisher</option>
+          </select>
+          <p class="hint" id="method-hint"></p>
+        </div>
+
+        <div class="field">
+          <label for="window">Rolling window (periods)</label>
+          <input id="window" name="window" type="number" min="30" max="2000" step="10" value="250" inputmode="numeric">
+        </div>
+      </form>
+    </section>
+
+    <div id="status" class="status" role="status" aria-live="polite"></div>
+
+    <div id="results" class="results" tabindex="-1" hidden>
+      <div class="provenance">
+        <p id="provenance"></p>
+        <button id="download" type="button" class="button">Download series (CSV)</button>
+      </div>
+
+      <section aria-labelledby="glance-title">
+        <h2 id="glance-title">Risk at a glance</h2>
+        <dl id="headline" class="headline"></dl>
+        <div class="tables">
+          <table class="stats" id="table-drawdown"></table>
+          <table class="stats" id="table-shape"></table>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="backtest-title">
+        <h2 id="backtest-title">Model validation</h2>
+        <p id="verdict" class="verdict"></p>
+        <div class="table-scroll" role="region" aria-label="Backtest results" tabindex="0">
+          <table class="tests" id="table-tests"></table>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="growth-title">
+        <h2 id="growth-title">Growth of 100 and drawdown</h2>
+        <p class="takeaway" id="takeaway-growth"></p>
+        <div id="chart-growth" class="chart"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="var-title">
+        <h2 id="var-title">Daily return against the VaR forecast</h2>
+        <p class="takeaway" id="takeaway-var"></p>
+        <div id="chart-var" class="chart"></div>
+      </section>
+
+      <div class="pair">
+        <section class="panel" aria-labelledby="dist-title">
+          <h2 id="dist-title">Distribution of returns</h2>
+          <p class="takeaway" id="takeaway-dist"></p>
+          <div id="chart-dist" class="chart"></div>
+        </section>
+        <section class="panel" aria-labelledby="qq-title">
+          <h2 id="qq-title">Tail shape: QQ plot against the normal</h2>
+          <p class="takeaway" id="takeaway-qq"></p>
+          <div id="chart-qq" class="chart"></div>
+        </section>
+      </div>
+
+      <details class="panel definitions">
+        <summary>Definitions and assumptions</summary>
+        <ul id="notes"></ul>
+        <dl>
+          <dt>Value at risk (VaR)</dt>
+          <dd>The one period return that is not expected to be breached at the chosen confidence level. Losses are negative.</dd>
+          <dt>Expected shortfall (ES)</dt>
+          <dd>The average return on the periods that breach the VaR. Never better than the VaR.</dd>
+          <dt>Breach</dt>
+          <dd>A period whose return is worse than the VaR forecast made <em>before</em> it, from the previous window of returns.</dd>
+          <dt>Kupiec test</dt>
+          <dd>Tests the <em>number</em> of breaches against the confidence level. Rejects too many (risk understated) and too few (overstated).</dd>
+          <dt>Christoffersen independence test</dt>
+          <dd>Tests whether a breach makes another more likely the next period, i.e. whether they cluster.</dd>
+          <dt>Conditional coverage</dt>
+          <dd>Kupiec and independence combined.</dd>
+          <dt>Basel traffic light</dt>
+          <dd>Green, yellow or red from the binomial probability of seeing this many breaches or fewer if the model were right (95% and 99.99% cut-offs).</dd>
+          <dt>QQ plot</dt>
+          <dd>Sample quantiles, in standard deviations, against normal quantiles. Points on the dashed line mean normal tails; points below it in the left tail mean fatter losses than a normal distribution allows.</dd>
+        </dl>
+      </details>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <p>Example application for <a href="https://github.com/goldmansachs/gs-quant">gs-quant</a>. Sample data is simulated
+        (GARCH(1,1) with Student-t innovations). Not investment advice.</p>
+    </div>
+  </footer>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>
