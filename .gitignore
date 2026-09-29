@@ -1,2 +1,8 @@
 *.pyc
 gs_quant/.idea/
+*.egg-info/
+.coverage
+htmlcov/
+.pytest_cache/
+.ruff_cache/
+.venv/
