@@ -12,6 +12,7 @@ software distributed under the License is distributed on an
 KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
+Portions copyright Senanur Çetin. Licensed under Apache 2.0 license
 """
 
 import asyncio
@@ -103,7 +104,11 @@ def server(
     enable_keys: Annotated[str, typer.Option(help="Comma-separated list of keys to select e.g. tool:blah")] = None,
     disable_keys: Annotated[str, typer.Option(help="Comma-separated list of keys to de-select tools")] = None,
     auth: Annotated[
-        Literal['local', 'passthrough'], typer.Option(help="Auth method to use for tools that need a GsSession")
+        Literal['local', 'passthrough', 'none'],
+        typer.Option(
+            help="Auth method to use for tools that need a GsSession. 'none' does not connect to Marquee at all, "
+            "so only tools that need no session (e.g. --enable-tags analytics) can be used"
+        ),
     ] = 'local',
     client_id: Annotated[str, typer.Option(help="Client ID for authentication (for local auth)")] = None,
     client_secret: Annotated[str, typer.Option(help="Client ID for authentication (for local auth)")] = None,
@@ -145,9 +150,13 @@ def server(
     if auth == 'local':
         print(f"Using local authentication with client_id: [cyan]{client_id}[/]")
         mcp.add_middleware(LocalUserAuthMiddleware(environment, client_id=client_id, client_secret=client_secret))
-    else:
+    elif auth == 'passthrough':
         print("Using remote user authentication (passthrough)")
         mcp.add_middleware(RemoteUserAuthMiddleware(environment))
+    else:
+        print(
+            "Using [yellow]no authentication[/]: tools that need a GsSession will report that the user is not authenticated"
+        )
 
     mcp.add_middleware(LoggingMiddleware())
     run_mcp_server(mcp, mcp_config)
@@ -185,6 +194,13 @@ def client_main(
     client_id: Annotated[str, typer.Option(help="Client ID for GsSession-based auth")] = None,
     client_secret: Annotated[str, typer.Option(help="Client secret for GsSession-based auth")] = None,
     header: Annotated[list[str], typer.Option("--header", "-H", help="Extra header 'Name: value' (repeatable)")] = None,
+    no_auth: Annotated[
+        bool,
+        typer.Option(
+            "--no-auth",
+            help="Do not authenticate with Marquee, only send --header values. For servers started with --auth none",
+        ),
+    ] = False,
 ):
     """Connect to a FastMCP server. With no subcommand, opens an interactive REPL."""
     dotenv_file = find_dotenv(usecwd=True)
@@ -204,9 +220,12 @@ def client_main(
     server_url = build_server_url(url, base_path=base_path, host=host, port=port, ssl=ssl)
 
     def _build_client():
-        print(f"Authenticating GsSession with client_id: [cyan]{client_id}[/]")
-        gs_session = build_gs_session(environment, client_id, client_secret)
-        h = build_auth_headers(gs_session)
+        if no_auth:
+            h = {}
+        else:
+            print(f"Authenticating GsSession with client_id: [cyan]{client_id}[/]")
+            gs_session = build_gs_session(environment, client_id, client_secret)
+            h = build_auth_headers(gs_session)
         h.update(_parse_header_kv(header))
         return make_client(server_url, headers=h, verify_ssl=verify_ssl)
 

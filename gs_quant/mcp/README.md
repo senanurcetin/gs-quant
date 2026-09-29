@@ -37,6 +37,7 @@ python -m gs_quant.mcp <server|client|discover> ...
   - [Subcommands](#subcommands)
   - [Argument parsing for call-tool](#argument-parsing-for-call-tool)
   - [Interactive REPL](#interactive-repl)
+- [Built-in tools](#built-in-tools)
 - [Writing your own tools](#writing-your-own-tools)
   - [Registering tools](#registering-tools)
   - [Dependencies](#dependencies)
@@ -109,7 +110,7 @@ python -m gs_quant.mcp server [OPTIONS]
   --disable-tags          Comma-separated tag list — drop tools with these tags
   --enable-keys           Comma-separated tool keys (e.g. tool:my_tool) to keep
   --disable-keys          Comma-separated tool keys to drop
-  --auth                  local | passthrough  (default: local)
+  --auth                  local | passthrough | none  (default: local)
   --client-id             OAuth client id  (local auth only)
   --client-secret         OAuth client secret  (local auth only)
 ```
@@ -152,6 +153,17 @@ python -m gs_quant.mcp server --auth passthrough
 
 The matching client must then forward the user's auth via headers/cookies —
 see [Client CLI](#client-cli).
+
+#### `--auth none`
+
+Never connects to Marquee, so it needs no credentials or network access. Use it for tools that need no `GsSession`,
+such as the [`analytics`](#risk-analytics) tools. Tools that do need one fail with `User not authenticated`.
+
+```bash
+python -m gs_quant.mcp server --auth none --enable-tags analytics
+```
+
+Connect with `client --no-auth`.
 
 ### Configuration file
 
@@ -250,6 +262,8 @@ Auth
   --client-id         OAuth client id  (or env CLIENT_ID)
   --client-secret     OAuth client secret  (or env CLIENT_SECRET)
   -H / --header K=V   Extra header (repeatable). Also accepts "Name: value".
+  --no-auth           Skip the GsSession entirely and send only the -H headers
+                      (for a server started with --auth none)
 ```
 
 When credentials are supplied the client builds a real `GsSession`, extracts
@@ -358,6 +372,46 @@ Errors raised inside REPL commands are caught and printed without exiting the
 session.
 
 ---
+
+## Built-in tools
+
+Tools are grouped by tag, so a server can be limited to the ones you want (`--enable-tags`).
+
+| Tag | Tools | Needs Marquee access |
+| --- | --- | --- |
+| `user` | `current_user_info`, `whois` | yes |
+| `data` | `get_daily_data`, `get_intraday_data`, `get_last_data`, `get_dataset_coverage`, `get_underliers` | yes |
+| `secmaster` | `find_asset_identifiers` | yes |
+| `marketview` | `search_dashboards`, `get_dashboard`, `get_trending_dashboards`, `get_personalized_dashboards`, `search_widgets`, `get_widget`, `get_trending_widgets`, `get_personalized_widgets` | yes |
+| `analytics` | `risk_summary_from_returns`, `backtest_value_at_risk`, `compare_with_benchmark`, `asset_risk_summary` | only `asset_risk_summary` |
+
+### Risk analytics
+
+The `analytics` tools wrap [`gs_quant.timeseries.risk_metrics`](../timeseries/risk_metrics.py). Three of them take the
+numbers as arguments, so an agent can analyse returns from any source without a Marquee session:
+
+These need no credentials at all. Start a server that never connects to Marquee with `--auth none`, and connect to it
+with `--no-auth`:
+
+```bash
+python -m gs_quant.mcp server --auth none --enable-tags analytics
+
+python -m gs_quant.mcp client --no-auth call-tool risk_summary_from_returns \
+  'returns=[0.01,-0.02,0.015,0.003,-0.007,0.012]' confidence=0.95 periods_per_year=252
+```
+
+With `--auth none`, a tool that does need a Marquee session (for example `asset_risk_summary`) fails with "User not
+authenticated" instead of silently returning nothing.
+
+- `risk_summary_from_returns`: annualized return and volatility, skewness, kurtosis, value at risk (historical,
+  parametric and Cornish-Fisher), expected shortfall, Sortino, Omega, Calmar, maximum drawdown and ulcer index.
+- `backtest_value_at_risk`: rolling VaR forecasts, lagged so there is no look-ahead, checked with the Kupiec test.
+- `compare_with_benchmark`: tracking error, information ratio, active return, beta and correlation.
+- `asset_risk_summary`: fetches prices for a BBID from a dataset, then summarises the risk of its returns.
+
+Results are fractions (`0.02` is 2%) and losses are negative. Every response repeats these conventions and lists the
+assumptions that were made, for example that daily data was assumed when no dates were given. Undefined statistics are
+`null`, never `NaN`, so the output is always strict JSON. Inputs are limited to 20,000 observations per call.
 
 ## Writing your own tools
 

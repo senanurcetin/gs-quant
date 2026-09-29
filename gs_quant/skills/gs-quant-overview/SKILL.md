@@ -141,3 +141,4 @@ For detailed guidance on specific topics, see these focused files.
 - `datasets.md` — Accessing market and reference data via the gs_quant Dataset class: get_data, get_data_series, get_data_last, get_coverage, uploading data, batching large queries. Covers TREOD for equities, FXIVOL_STANDARD, symbol dimensions, and common pitfalls.
 - `backtesting.md` — Guide to the gs_quant backtesting framework: Strategy, triggers, actions, GenericEngine, EquityVolEngine, transaction costs, and result extraction.
 - `measure.md` — writing custom measures with `@plot_measure` and `@risk_measure` decorators
+- `risk-metrics.md` — value at risk, expected shortfall, Sortino/Calmar/Omega, drawdown, tracking error and VaR backtesting on any return or price series with `gs_quant.timeseries.risk_metrics`; no Marquee session needed
