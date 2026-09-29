@@ -31,6 +31,7 @@ from gs_quant.timeseries.risk_metrics import (
     downside_deviation,
     drawdown,
     expected_shortfall,
+    infer_periods_per_year,
     information_ratio,
     omega_ratio,
     risk_summary,
@@ -385,6 +386,16 @@ def test_annualization_is_inferred_from_weekly_data():
     weekly = pd.Series(SMALL.to_numpy(), index=pd.date_range('2021-01-03', periods=len(SMALL), freq='W'))
 
     assert_series_equal(downside_deviation(weekly), downside_deviation(weekly, annualization_factor=52))
+
+
+def test_infer_periods_per_year():
+    monthly = pd.Series(range(12), index=pd.date_range('2021-01-31', periods=12, freq='ME'))
+
+    assert infer_periods_per_year(SMALL) == 252
+    assert infer_periods_per_year(monthly) == 12
+    assert infer_periods_per_year(monthly, 4) == 4
+    with pytest.raises(MqValueError):
+        infer_periods_per_year(pd.Series([1.0, 2.0]))
 
 
 def test_annualization_needs_a_factor_for_a_non_date_index():

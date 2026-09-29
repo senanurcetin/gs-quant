@@ -45,6 +45,7 @@ __all__ = [
     'KupiecTestResult',
     'RiskSummary',
     'drawdown',
+    'infer_periods_per_year',
     'ulcer_index',
     'downside_deviation',
     'sortino_ratio',
@@ -169,7 +170,15 @@ def _calmar_kernel(prices: np.ndarray, periods_per_year: float) -> float:
 # ----------------------------------------------------------------------------------------------------------------------
 
 
-def _periods_per_year(x: pd.Series, annualization_factor: Optional[int]) -> float:
+def infer_periods_per_year(x: pd.Series, annualization_factor: Optional[int] = None) -> float:
+    """
+    Number of observations per year of a series: the annualization factor used by the other functions in this module
+
+    :param x: time series with a date index
+    :param annualization_factor: if given, it is validated and returned unchanged
+    :return: the number of periods per year, e.g. 252 for daily and 12 for monthly data. Raises :class:`MqValueError`
+             if the index is not made of dates, or its spacing is not a recognised frequency.
+    """
     if annualization_factor is not None:
         if annualization_factor <= 0:
             raise MqValueError('annualization_factor must be positive')
@@ -287,7 +296,7 @@ def downside_deviation(
     The mean is taken over *all* :math:`N` observations in the window, not only the shortfalls, so that windows with
     few losses are not penalised. Unlike standard deviation, only returns below the target contribute.
     """
-    factor = _periods_per_year(x, annualization_factor)
+    factor = infer_periods_per_year(x, annualization_factor)
     return _rolling(x, w, lambda a: _downside_deviation_kernel(a, mar)) * math.sqrt(factor)
 
 
@@ -316,7 +325,7 @@ def sortino_ratio(
 
     where :math:`DD` is the per period :func:`downside_deviation`.
     """
-    factor = _periods_per_year(x, annualization_factor)
+    factor = infer_periods_per_year(x, annualization_factor)
     return _rolling(x, w, lambda a: _sortino_kernel(a, mar)) * math.sqrt(factor)
 
 
@@ -362,7 +371,7 @@ def calmar_ratio(
 
     where :math:`N` is the number of prices in the window and :math:`F` the annualization factor.
     """
-    factor = _periods_per_year(x, annualization_factor)
+    factor = infer_periods_per_year(x, annualization_factor)
     return _rolling(x, w, lambda a: _calmar_kernel(a, factor))
 
 
@@ -476,7 +485,7 @@ def tracking_error(
     :math:`TE_t = \\sigma(R^{p} - R^{b}) \\times \\sqrt{F}`, using the sample standard deviation.
     """
     active = _active_returns(x, benchmark)
-    factor = _periods_per_year(active, annualization_factor)
+    factor = infer_periods_per_year(active, annualization_factor)
     return _rolling(active, w, lambda a: float(np.std(_finite(a), ddof=1)) if _finite(a).size > 1 else math.nan) * (
         math.sqrt(factor)
     )
@@ -509,7 +518,7 @@ def information_ratio(
     :func:`tracking_error`
     """
     active = _active_returns(x, benchmark)
-    factor = _periods_per_year(active, annualization_factor)
+    factor = infer_periods_per_year(active, annualization_factor)
 
     def kernel(a: np.ndarray) -> float:
         a = _finite(a)
@@ -659,7 +668,7 @@ def risk_summary(
         raise MqValueError('At least two returns are required')
     if (a <= -1).any():
         raise MqValueError('Simple returns must be greater than -100%')
-    factor = _periods_per_year(x, annualization_factor)
+    factor = infer_periods_per_year(x, annualization_factor)
 
     growth = np.concatenate(([1.0], np.cumprod(1 + a)))
     std = a.std(ddof=1)
