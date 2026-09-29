@@ -1056,6 +1056,40 @@ def beta(x: pd.Series, b: pd.Series, w: Union[Window, int, str] = Window(None, 0
     return apply_ramp(interpolate(result, x, Interpolate.NAN), w)
 
 
+def _max_drawdown_date_window_reference(x: pd.Series, offset: pd.DateOffset) -> pd.Series:
+    """Straightforward definition of the rolling maximum drawdown over a relative date window. It scans the whole
+    series for every date, so it is O(n^2); _max_drawdown_date_window is the fast equivalent."""
+    scores = pd.Series(
+        [x[idx] / x.loc[(x.index > (idx - offset)) & (x.index <= idx)].max() - 1 for idx in x.index], index=x.index
+    )
+    return pd.Series(
+        [scores.loc[(scores.index > (idx - offset)) & (scores.index <= idx)].min() for idx in scores.index],
+        index=scores.index,
+    )
+
+
+def _max_drawdown_date_window(x: pd.Series, offset: pd.DateOffset) -> pd.Series:
+    """Rolling maximum drawdown over a relative date window, giving the same result as the reference implementation.
+
+    The first date of every window is found once, by binary search, instead of by scanning the series for each date.
+    That needs a sorted, unique index; for anything else the reference implementation is used."""
+    if not (x.index.is_monotonic_increasing and x.index.is_unique):
+        return _max_drawdown_date_window_reference(x, offset)
+    values = x.to_numpy(dtype=float)
+    n = len(values)
+    # windows are (date - offset, date]; the date itself is always in its window
+    starts = np.minimum(x.index.searchsorted(x.index - offset, side='right'), np.arange(n))
+    scores = np.empty(n)
+    result = np.empty(n)
+    # fmax / fmin skip NaN like the pandas max / min of the reference, and give NaN (without warning) for all-NaN
+    with np.errstate(divide='ignore', invalid='ignore'):
+        for i in range(n):
+            scores[i] = values[i] / np.fmax.reduce(values[starts[i] : i + 1]) - 1
+        for i in range(n):
+            result[i] = np.fmin.reduce(scores[starts[i] : i + 1])
+    return pd.Series(result, index=x.index)
+
+
 @plot_function
 def max_drawdown(x: pd.Series, w: Union[Window, int, str] = Window(None, 0)) -> pd.Series:
     """
@@ -1084,13 +1118,7 @@ def max_drawdown(x: pd.Series, w: Union[Window, int, str] = Window(None, 0)) -> 
     w = normalize_window(x, w)
     if isinstance(w.w, pd.DateOffset):
         if pd.api.types.is_datetime64_dtype(x.index):
-            scores = pd.Series(
-                [x[idx] / x.loc[(x.index > (idx - w.w)) & (x.index <= idx)].max() - 1 for idx in x.index], index=x.index
-            )
-            result = pd.Series(
-                [scores.loc[(scores.index > (idx - w.w)) & (scores.index <= idx)].min() for idx in scores.index],
-                index=scores.index,
-            )
+            result = _max_drawdown_date_window(x, w.w)
         else:
             raise TypeError('Please pass in list of dates as index')
     else:
