@@ -32,7 +32,7 @@ def _python_blocks(name: str) -> list[str]:
 def test_risk_metrics_examples_run():
     """The examples are documentation an agent copies from, so they must keep working (blocks build on each other)"""
     blocks = _python_blocks("risk-metrics.md")
-    assert len(blocks) == 5
+    assert len(blocks) == 6
 
     namespace: dict = {}
     for i, block in enumerate(blocks):
@@ -44,6 +44,8 @@ def test_risk_metrics_examples_run():
     assert namespace["summary"].observations == 750
     assert namespace["result"].observations == 499  # 750 - 250 ramp up - 1 lag
     assert namespace["var_hist"].iloc[-1] < 0
+    assert 0 <= namespace["timing"].independence_p_value <= 1
+    assert namespace["light"].zone.value in {"green", "yellow", "red"}
 
 
 def test_risk_metrics_skill_is_linked_from_the_overview():

@@ -83,7 +83,22 @@ result.reject  # True if rejected at the 5% level
 ```
 
 `var_backtest` is the Kupiec proportion of failures test. It rejects both too many exceedances (risk understated) and too
-few (risk overstated). It checks the *count* only, not whether exceedances cluster in time.
+few (risk overstated). It checks the *count* only, not whether exceedances cluster in time. Two companions cover the rest:
+
+```python
+from gs_quant.timeseries.risk_metrics import traffic_light_zone, var_independence_test
+
+timing = var_independence_test(daily_returns, forecast, confidence=0.99)
+timing.independence_p_value  # small: a breach makes another more likely, i.e. the model reacts too slowly
+timing.conditional_coverage_reject  # frequency and timing together
+
+light = traffic_light_zone(result.exceedances, result.observations, confidence=0.99)
+light.zone  # TrafficLightZone.GREEN / YELLOW / RED, the Basel classification
+```
+
+`var_independence_test` is the Christoffersen test. Use it whenever the count looks fine but losses arrive in bursts.
+`traffic_light_zone` turns the number of exceedances into the Basel zone (for 250 days at 99%: 0-4 green, 5-9 yellow,
+10 or more red), and works for any window length and confidence level.
 
 ## Other measures
 

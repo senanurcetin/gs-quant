@@ -136,7 +136,7 @@ async def test_backtest_over_the_protocol():
     assert result["observations"] == 400 - 100
     assert result["method"] == "parametric" and result["window"] == 100
     assert 0 <= result["p_value"] <= 1
-    assert payload["interpretation"].startswith("Model rejected" if result["reject"] else "Model not rejected")
+    assert ("unlikely" if result["reject"] else "consistent with") in payload["interpretation"]
 
 
 @pytest.mark.asyncio
@@ -261,6 +261,27 @@ class TestBacktest:
         assert result["exceedances"] == expected_breaches
         assert result["observations"] == len(RETURNS) - 60
 
+    def test_reports_the_independence_test_and_the_traffic_light(self):
+        payload = tools.backtest_value_at_risk(RETURNS, window=60, confidence=0.99)
+
+        independence, light = payload["independence"], payload["traffic_light"]
+        assert independence["exceedances"] == payload["result"]["exceedances"]
+        assert 0 <= independence["independence_p_value"] <= 1
+        assert light["zone"] in {"green", "yellow", "red"}
+        assert light["expected_exceedances"] == pytest.approx(0.01 * payload["result"]["observations"])
+        assert "Frequency:" in payload["interpretation"] and "Timing:" in payload["interpretation"]
+
+    def test_interpretation_flags_clustered_exceedances(self):
+        # two calm years, then a long stretch of turbulence that a 250 day window is slow to notice
+        rng = np.random.default_rng(31)
+        calm = rng.normal(0, 0.004, 400)
+        turbulent = np.concatenate([rng.normal(0, 0.03, 40), rng.normal(0, 0.004, 60)] * 3)
+
+        clustered = tools.backtest_value_at_risk(list(calm) + list(turbulent), window=250, confidence=0.95)
+
+        assert clustered["independence"]["independence_reject"] is True
+        assert "exceedances cluster" in clustered["interpretation"]
+
     def test_requires_enough_history(self):
         with pytest.raises(ToolError, match="Need more than"):
             tools.backtest_value_at_risk(RETURNS[:100], window=100)
@@ -275,7 +296,7 @@ class TestBacktest:
         result = tools.backtest_value_at_risk(calm + wild, window=250, confidence=0.99)
 
         assert result["result"]["reject"] is True
-        assert result["interpretation"].startswith("Model rejected")
+        assert "Frequency: the number of exceedances is unlikely" in result["interpretation"]
 
 
 class TestCompareWithBenchmark:

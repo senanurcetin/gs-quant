@@ -35,8 +35,10 @@ from gs_quant.timeseries.risk_metrics import (
     information_ratio,
     risk_summary,
     tracking_error,
+    traffic_light_zone,
     value_at_risk,
     var_backtest,
+    var_independence_test,
 )
 
 # Analytics that need no Marquee data: an agent supplies the numbers. Bounded so that a single call cannot tie up the
@@ -134,10 +136,11 @@ def backtest_value_at_risk(
     significance: Annotated[float, "Significance level of the test, e.g. 0.05"] = 0.05,
 ) -> dict:
     """
-    Checks whether a rolling value at risk model is well calibrated, using the Kupiec proportion of failures test.
-    Each period is forecast from the previous `window` returns only (no look-ahead) and compared with the return that
-    followed. Too many exceedances mean the model understates risk, too few mean it overstates it. `reject` is true if
-    the observed exceedance rate is statistically inconsistent with 1 - confidence.
+    Checks whether a rolling value at risk model is well calibrated. Each period is forecast from the previous
+    `window` returns only (no look-ahead) and compared with the return that followed. Reports the Kupiec proportion of
+    failures test (too many exceedances mean the model understates risk, too few that it overstates it; `reject` is
+    true if the rate is statistically inconsistent with 1 - confidence), the Christoffersen tests of whether
+    exceedances cluster in time, and the Basel traffic light zone.
     """
     series = _series(returns, dates, "returns")
     if window < 30:
@@ -147,16 +150,30 @@ def backtest_value_at_risk(
     try:
         forecast = value_at_risk(series, confidence, VaRMethod(method), w=Window(window, window - 1)).shift(1)
         result = var_backtest(series, forecast, confidence, significance)
+        independence = var_independence_test(series, forecast, confidence, significance)
+        light = traffic_light_zone(result.exceedances, result.observations, confidence)
     except (MqError, ValueError) as e:
         raise ToolError(str(e)) from e
+    interpretation = (
+        "Frequency: the number of exceedances is unlikely if the model were calibrated"
+        if result.reject
+        else "Frequency: the number of exceedances is consistent with the confidence level"
+    )
+    interpretation += (
+        ". Timing: exceedances cluster, so the model is slow to react to changes in volatility"
+        if independence.independence_reject
+        else ". Timing: no evidence that exceedances cluster"
+    )
     return {
         "result": {**asdict(result), "method": method, "window": window},
+        "independence": asdict(independence),
+        "traffic_light": {
+            "zone": light.zone.value,
+            "cumulative_probability": light.cumulative_probability,
+            "expected_exceedances": light.expected_exceedances,
+        },
         "conventions": _CONVENTIONS,
-        "interpretation": (
-            "Model rejected: the number of exceedances is unlikely if it were calibrated"
-            if result.reject
-            else "Model not rejected: the number of exceedances is consistent with the confidence level"
-        ),
+        "interpretation": interpretation,
     }
 
 
