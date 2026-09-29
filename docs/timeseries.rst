@@ -164,21 +164,27 @@ import them from ``gs_quant.timeseries.risk_metrics``.
    downside_deviation
    drawdown
    expected_shortfall
+   infer_periods_per_year
    information_ratio
    omega_ratio
    risk_summary
    sortino_ratio
    tracking_error
+   traffic_light_zone
    ulcer_index
    value_at_risk
    var_backtest
+   var_independence_test
 
 .. autosummary::
    :toctree: classes
    :template: timeseries_class.rst
 
+   ChristoffersenTestResult
    KupiecTestResult
    RiskSummary
+   TrafficLight
+   TrafficLightZone
    VaRMethod
 
 Technical Analysis

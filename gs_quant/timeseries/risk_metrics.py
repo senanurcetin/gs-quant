@@ -43,6 +43,9 @@ from gs_quant.timeseries.helper import Window, apply_ramp, normalize_window
 __all__ = [
     'VaRMethod',
     'KupiecTestResult',
+    'ChristoffersenTestResult',
+    'TrafficLight',
+    'TrafficLightZone',
     'RiskSummary',
     'drawdown',
     'infer_periods_per_year',
@@ -56,6 +59,8 @@ __all__ = [
     'tracking_error',
     'information_ratio',
     'var_backtest',
+    'var_independence_test',
+    'traffic_light_zone',
     'risk_summary',
 ]
 
@@ -582,14 +587,9 @@ def var_backtest(
     p = _validate_confidence(confidence)
     if not 0 < significance < 1:
         raise MqValueError(f'significance must be strictly between 0 and 1, got {significance}')
-    x, var = x.align(var, join='inner')
-    valid = x.notna() & var.notna()
-    x, var = x[valid], var[valid]
-    n_obs = len(x)
-    if n_obs == 0:
-        raise MqValueError('No overlapping observations between returns and value at risk')
-
-    exceedances = int((x < var).sum())
+    breaches = _breaches(x, var)
+    n_obs = len(breaches)
+    exceedances = int(breaches.sum())
     observed = exceedances / n_obs
     # xlogy gives 0 * log(0) = 0, which handles the cases of no exceedances and of all exceedances
     log_null = special.xlogy(n_obs - exceedances, 1 - p) + special.xlogy(exceedances, p)
@@ -597,6 +597,157 @@ def var_backtest(
     lr = max(float(-2 * (log_null - log_alternative)), 0.0)
     p_value = float(stats.chi2.sf(lr, 1))
     return KupiecTestResult(n_obs, exceedances, p, observed, lr, p_value, p_value < significance)
+
+
+def _breaches(x: pd.Series, var: pd.Series) -> pd.Series:
+    """Boolean series, by date, of the periods in which the return was worse than the value at risk forecast"""
+    x, var = x.align(var, join='inner')
+    valid = x.notna() & var.notna()
+    if not valid.any():
+        raise MqValueError('No overlapping observations between returns and value at risk')
+    return x[valid] < var[valid]
+
+
+@dataclass(frozen=True)
+class ChristoffersenTestResult:
+    """Outcome of the Christoffersen tests of independence and conditional coverage"""
+
+    observations: int  #: number of periods tested
+    exceedances: int  #: number of periods in which the return was worse than the value at risk
+    n00: int  #: transitions from no exceedance to no exceedance
+    n01: int  #: transitions from no exceedance to an exceedance
+    n10: int  #: transitions from an exceedance to no exceedance
+    n11: int  #: transitions from an exceedance to another exceedance
+    independence_lr: float  #: chi-squared with one degree of freedom under the null of independent exceedances
+    independence_p_value: float
+    independence_reject: bool  #: True if exceedances are rejected as independent at the requested significance
+    conditional_coverage_lr: float  #: Kupiec plus independence: chi-squared with two degrees of freedom
+    conditional_coverage_p_value: float
+    conditional_coverage_reject: bool
+
+
+def var_independence_test(
+    x: pd.Series, var: pd.Series, confidence: float = 0.95, significance: float = 0.05
+) -> ChristoffersenTestResult:
+    """
+    Test whether value at risk exceedances are independent over time, with the Christoffersen tests
+
+    :param x: time series of realised returns
+    :param var: time series of ex ante value at risk forecasts, as returns (negative for a loss). Only dates present in
+                both series are used. Lag a rolling forecast before testing, as for :func:`var_backtest`.
+    :param confidence: confidence level the value at risk was estimated at. Defaults to 95%.
+    :param significance: significance level of the tests. Defaults to 5%.
+    :return: the test result. Independence asks whether an exceedance today makes one tomorrow more likely, which is
+             what happens when a model reacts too slowly to a rise in volatility. Conditional coverage combines it with
+             the frequency test of :func:`var_backtest`.
+
+    **Usage**
+
+    Let :math:`n_{ij}` count the periods in which state :math:`i` (1 for an exceedance) was followed by state
+    :math:`j`, :math:`\pi_0 = n_{01} / (n_{00} + n_{01})`, :math:`\pi_1 = n_{11} / (n_{10} + n_{11})` and
+    :math:`\pi = (n_{01} + n_{11}) / n`:
+
+    :math:`LR_{ind} = -2 \ln \left[ (1-\pi)^{n_{00}+n_{10}} \pi^{n_{01}+n_{11}} \right]
+    + 2 \ln \left[ (1-\pi_0)^{n_{00}} \pi_0^{n_{01}} (1-\pi_1)^{n_{10}} \pi_1^{n_{11}} \right]`
+
+    which is asymptotically :math:`\chi^2(1)`. The conditional coverage statistic is :math:`LR_{pof} + LR_{ind}`,
+    asymptotically :math:`\chi^2(2)`. With no exceedances, or only exceedances, there is nothing to test and the
+    independence statistic is 0.
+
+    **See also**
+
+    :func:`var_backtest`
+    """
+    p = _validate_confidence(confidence)
+    if not 0 < significance < 1:
+        raise MqValueError(f'significance must be strictly between 0 and 1, got {significance}')
+    hits = _breaches(x, var).to_numpy(dtype=int)
+    if hits.size < 2:
+        raise MqValueError('At least two overlapping observations are required')
+    previous, current = hits[:-1], hits[1:]
+    n00 = int(((previous == 0) & (current == 0)).sum())
+    n01 = int(((previous == 0) & (current == 1)).sum())
+    n10 = int(((previous == 1) & (current == 0)).sum())
+    n11 = int(((previous == 1) & (current == 1)).sum())
+
+    def rate(ones: int, total: int) -> float:
+        return ones / total if total else 0.0
+
+    pi, pi0, pi1 = rate(n01 + n11, n00 + n01 + n10 + n11), rate(n01, n00 + n01), rate(n11, n10 + n11)
+    log_null = special.xlogy(n00 + n10, 1 - pi) + special.xlogy(n01 + n11, pi)
+    log_alternative = (
+        special.xlogy(n00, 1 - pi0) + special.xlogy(n01, pi0) + special.xlogy(n10, 1 - pi1) + special.xlogy(n11, pi1)
+    )
+    lr_ind = max(float(-2 * (log_null - log_alternative)), 0.0)
+
+    n_obs, exceedances = int(hits.size), int(hits.sum())
+    observed = exceedances / n_obs
+    log_pof_null = special.xlogy(n_obs - exceedances, 1 - p) + special.xlogy(exceedances, p)
+    log_pof_alt = special.xlogy(n_obs - exceedances, 1 - observed) + special.xlogy(exceedances, observed)
+    lr_cc = max(float(-2 * (log_pof_null - log_pof_alt)), 0.0) + lr_ind
+
+    p_ind, p_cc = float(stats.chi2.sf(lr_ind, 1)), float(stats.chi2.sf(lr_cc, 2))
+    return ChristoffersenTestResult(
+        n_obs, exceedances, n00, n01, n10, n11, lr_ind, p_ind, p_ind < significance, lr_cc, p_cc, p_cc < significance
+    )
+
+
+@unique
+class TrafficLightZone(Enum):
+    """Basel traffic light zone of a value at risk backtest"""
+
+    GREEN = 'green'  #: the number of exceedances is unremarkable: the model is accepted
+    YELLOW = 'yellow'  #: more exceedances than expected, but not conclusive
+    RED = 'red'  #: so many exceedances that the model is almost certainly wrong
+
+
+@dataclass(frozen=True)
+class TrafficLight:
+    """Traffic light zone and the probability behind it"""
+
+    zone: TrafficLightZone
+    cumulative_probability: float  #: probability of this many exceedances or fewer if the model were correct
+    expected_exceedances: float
+
+
+def traffic_light_zone(exceedances: int, observations: int, confidence: float = 0.99) -> TrafficLight:
+    """
+    Basel traffic light zone for a number of value at risk exceedances
+
+    :param exceedances: number of periods in which the return was worse than the value at risk
+    :param observations: number of periods tested
+    :param confidence: confidence level of the value at risk. Defaults to 99%, the level the Basel rules were
+                       written for.
+    :return: the zone and the binomial cumulative probability that determined it
+
+    **Usage**
+
+    If the model were correct, the number of exceedances would be Binomial(:math:`T`, :math:`1 - confidence`).
+    With :math:`F` its cumulative distribution function, evaluated at the observed count:
+
+    ==========  ========================
+    Zone        Cumulative probability
+    ==========  ========================
+    green       :math:`F < 95\%`
+    yellow      :math:`95\% \le F < 99.99\%`
+    red         :math:`F \ge 99.99\%`
+    ==========  ========================
+
+    For 250 observations at 99% this reproduces the Basel Committee's zones: 0 to 4 exceedances are green, 5 to 9
+    yellow and 10 or more red. Unlike the fixed table, it applies to any window length and confidence level.
+    """
+    p = _validate_confidence(confidence)
+    if observations < 1 or not 0 <= exceedances <= observations:
+        raise MqValueError('exceedances must be between 0 and observations, and observations must be positive')
+    cumulative = float(stats.binom.cdf(exceedances, observations, p))
+    zone = (
+        TrafficLightZone.GREEN
+        if cumulative < 0.95
+        else TrafficLightZone.YELLOW
+        if cumulative < 0.9999
+        else TrafficLightZone.RED
+    )
+    return TrafficLight(zone, cumulative, observations * p)
 
 
 # ----------------------------------------------------------------------------------------------------------------------

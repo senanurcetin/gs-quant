@@ -26,6 +26,7 @@ from gs_quant.errors import MqValueError
 from gs_quant.timeseries import measures_reports
 from gs_quant.timeseries.helper import Window
 from gs_quant.timeseries.risk_metrics import (
+    TrafficLightZone,
     VaRMethod,
     calmar_ratio,
     downside_deviation,
@@ -37,9 +38,11 @@ from gs_quant.timeseries.risk_metrics import (
     risk_summary,
     sortino_ratio,
     tracking_error,
+    traffic_light_zone,
     ulcer_index,
     value_at_risk,
     var_backtest,
+    var_independence_test,
 )
 
 
@@ -568,6 +571,199 @@ def test_kupiec_result_is_immutable():
 
     with pytest.raises(AttributeError):
         result.reject = True
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# Christoffersen independence and Basel traffic lights
+# ----------------------------------------------------------------------------------------------------------------------
+
+
+def _hits_series(pattern: str) -> tuple[pd.Series, pd.Series]:
+    """Returns and a constant VaR forecast that produce exactly the given breach pattern ('x' is a breach)"""
+    returns = _daily([-0.02 if c == 'x' else 0.01 for c in pattern])
+    return returns, _daily([-0.01] * len(pattern))
+
+
+def _reference_independence_lr(pattern: str) -> float:
+    """Independent implementation with plain math.log, following the textbook formulation"""
+    hits = [1 if c == 'x' else 0 for c in pattern]
+    n = {(a, b): 0 for a in (0, 1) for b in (0, 1)}
+    for a, b in zip(hits[:-1], hits[1:]):
+        n[(a, b)] += 1
+
+    def log_likelihood(terms):
+        return sum(count * math.log(prob) for count, prob in terms if count > 0)
+
+    pi0 = n[(0, 1)] / (n[(0, 0)] + n[(0, 1)])
+    pi1 = n[(1, 1)] / (n[(1, 0)] + n[(1, 1)]) if n[(1, 0)] + n[(1, 1)] else 0.0
+    pi = (n[(0, 1)] + n[(1, 1)]) / sum(n.values())
+    null = log_likelihood([(n[(0, 0)] + n[(1, 0)], 1 - pi), (n[(0, 1)] + n[(1, 1)], pi)])
+    alternative = log_likelihood([(n[(0, 0)], 1 - pi0), (n[(0, 1)], pi0), (n[(1, 0)], 1 - pi1), (n[(1, 1)], pi1)])
+    return -2 * (null - alternative)
+
+
+@pytest.mark.parametrize(
+    'pattern',
+    [
+        '..x..x...x....x..x.....x...x..',  # scattered
+        '.........xxxxx.........xxxxx...',  # clustered
+        'x.x.x.x.x.x.x.x.x.x.x.x.x.x.x.',  # alternating: exceedances repel each other
+        '....xx.....x..xx.....x.xxx.....',
+    ],
+)
+def test_independence_statistic_matches_the_reference_implementation(pattern):
+    returns, forecast = _hits_series(pattern)
+
+    result = var_independence_test(returns, forecast, confidence=0.95)
+
+    expected = _reference_independence_lr(pattern)
+    assert result.independence_lr == pytest.approx(expected, abs=1e-9)
+    assert result.independence_p_value == pytest.approx(stats.chi2.sf(expected, 1))
+    assert result.exceedances == pattern.count('x')
+    assert result.n00 + result.n01 + result.n10 + result.n11 == len(pattern) - 1
+
+
+def test_transition_counts():
+    returns, forecast = _hits_series('.xx..x.')
+
+    result = var_independence_test(returns, forecast)
+
+    assert (result.n00, result.n01, result.n10, result.n11) == (1, 2, 2, 1)
+
+
+def _random_hits(rate: float, n: int, seed: int) -> tuple[pd.Series, pd.Series]:
+    """Independent exceedances: each period breaches with the given probability"""
+    hits = np.random.default_rng(seed).random(n) < rate
+    return _hits_series(''.join('x' if h else '.' for h in hits))
+
+
+def test_clustered_exceedances_are_rejected_but_independent_ones_are_not():
+    clustered, forecast = _hits_series(('.' * 45 + 'x' * 5) * 6)
+    independent, forecast_independent = _random_hits(0.1, 300, seed=4)
+
+    assert var_independence_test(clustered, forecast, 0.9).independence_reject
+    assert not var_independence_test(independent, forecast_independent, 0.9).independence_reject
+
+
+def test_perfectly_regular_exceedances_are_not_independent_either():
+    # every tenth period, never two in a row: as far from independent as clustering, in the other direction
+    regular, forecast = _hits_series(('.' * 9 + 'x') * 30)
+
+    assert var_independence_test(regular, forecast, 0.9).independence_reject
+
+
+def test_independence_is_blind_to_frequency_but_conditional_coverage_is_not():
+    # independent exceedances 30% of the time: far too frequent for a 95% model, yet not clustered
+    returns, forecast = _random_hits(0.3, 500, seed=1)
+
+    result = var_independence_test(returns, forecast, 0.95)
+
+    assert not result.independence_reject
+    assert result.conditional_coverage_reject
+    assert result.conditional_coverage_lr >= result.independence_lr
+
+
+def _markov_hits(stay: float, enter: float, n: int, seed: int) -> tuple[pd.Series, pd.Series]:
+    """Exceedances that cluster: P(breach | breach yesterday) = stay, P(breach | no breach yesterday) = enter"""
+    rng = np.random.default_rng(seed)
+    hits = [False]
+    for _ in range(n - 1):
+        hits.append(bool(rng.random() < (stay if hits[-1] else enter)))
+    return _hits_series(''.join('x' if h else '.' for h in hits))
+
+
+def test_independence_test_has_the_right_size_and_power():
+    """Over many simulated samples: about 5% false rejections when independent, and it detects clustering"""
+    seeds = range(400)
+
+    false_rejections = sum(
+        var_independence_test(*_random_hits(0.3, 500, seed), confidence=0.95).independence_reject for seed in seeds
+    )
+    detections = sum(
+        var_independence_test(*_markov_hits(0.6, 0.1, 500, seed), confidence=0.95).independence_reject for seed in seeds
+    )
+
+    assert 0.02 <= false_rejections / len(seeds) <= 0.09  # nominal 5%
+    assert detections / len(seeds) > 0.95
+
+
+def test_conditional_coverage_adds_the_kupiec_statistic():
+    pattern = '....xx.....x..xx.....x.xxx.....' * 10
+    returns, forecast = _hits_series(pattern)
+
+    ind = var_independence_test(returns, forecast, 0.9)
+    pof = var_backtest(returns.iloc[1:], forecast.iloc[1:], 0.9)  # the transitions cover all but the first period
+
+    assert ind.conditional_coverage_lr == pytest.approx(ind.independence_lr + pof.lr_statistic, rel=0.02)
+    assert ind.conditional_coverage_p_value == pytest.approx(stats.chi2.sf(ind.conditional_coverage_lr, 2))
+
+
+@pytest.mark.parametrize('pattern', ['.' * 50, 'x' * 50])
+def test_independence_is_untestable_without_a_mix_of_states(pattern):
+    returns, forecast = _hits_series(pattern)
+
+    result = var_independence_test(returns, forecast, 0.95)
+
+    assert result.independence_lr == 0 and result.independence_p_value == 1 and not result.independence_reject
+
+
+def test_independence_test_validates_its_input():
+    returns, forecast = _hits_series('..x..')
+
+    with pytest.raises(MqValueError, match='confidence'):
+        var_independence_test(returns, forecast, confidence=1.2)
+    with pytest.raises(MqValueError, match='significance'):
+        var_independence_test(returns, forecast, significance=0)
+    with pytest.raises(MqValueError, match='overlapping'):
+        var_independence_test(returns, _daily([-0.01] * 5, start='2031-01-01'))
+    with pytest.raises(MqValueError, match='two'):
+        var_independence_test(returns.iloc[:1], forecast.iloc[:1])
+
+
+def test_a_model_that_reacts_slowly_to_a_volatility_shift_fails_conditional_coverage():
+    rng = np.random.default_rng(21)
+    calm, turbulent = rng.normal(0, 0.005, 500), rng.normal(0, 0.02, 250)
+    returns = _daily(np.concatenate([calm, turbulent]))
+    forecast = value_at_risk(returns, 0.95, VaRMethod.PARAMETRIC, w=Window(250, 249)).shift(1)
+
+    result = var_independence_test(returns, forecast, 0.95)
+
+    # what the data show: too many exceedances overall; they are not strongly serially dependent in this sample
+    assert result.exceedances > 1.5 * 0.05 * result.observations
+    assert result.conditional_coverage_reject
+
+
+@pytest.mark.parametrize(
+    'exceedances, zone',
+    [(0, 'green'), (4, 'green'), (5, 'yellow'), (9, 'yellow'), (10, 'red'), (25, 'red')],
+)
+def test_traffic_light_reproduces_the_basel_table_for_250_days_at_99_percent(exceedances, zone):
+    assert traffic_light_zone(exceedances, 250, 0.99).zone == TrafficLightZone(zone)
+
+
+def test_traffic_light_cumulative_probabilities_match_the_published_values():
+    # Basel Committee, "Supervisory framework for the use of backtesting", table 2
+    for exceedances, published in [(0, 0.0811), (4, 0.8922), (5, 0.9588), (9, 0.9997), (10, 0.9999)]:
+        assert traffic_light_zone(exceedances, 250, 0.99).cumulative_probability == pytest.approx(published, abs=6e-5)
+
+
+def test_traffic_light_scales_with_the_window_and_confidence():
+    expected_at_95 = traffic_light_zone(0, 500, 0.95)
+
+    assert expected_at_95.expected_exceedances == pytest.approx(25)
+    assert traffic_light_zone(25, 500, 0.95).zone == TrafficLightZone.GREEN
+    assert traffic_light_zone(60, 500, 0.95).zone == TrafficLightZone.RED
+
+
+def test_traffic_light_validates_its_input():
+    with pytest.raises(MqValueError):
+        traffic_light_zone(5, 0)
+    with pytest.raises(MqValueError):
+        traffic_light_zone(11, 10)
+    with pytest.raises(MqValueError):
+        traffic_light_zone(-1, 10)
+    with pytest.raises(MqValueError, match='confidence'):
+        traffic_light_zone(1, 10, confidence=1)
 
 
 # ----------------------------------------------------------------------------------------------------------------------
