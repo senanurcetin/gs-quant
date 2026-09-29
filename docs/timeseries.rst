@@ -149,6 +149,44 @@ Statistics
    SIRModel
    SEIRModel
 
+Risk Metrics
+------------
+
+Downside and tail risk analytics for return and price series. These are not exported from ``gs_quant.timeseries``,
+import them from ``gs_quant.timeseries.risk_metrics``.
+
+.. currentmodule:: gs_quant.timeseries.risk_metrics
+
+.. autosummary::
+   :toctree: functions
+
+   calmar_ratio
+   downside_deviation
+   drawdown
+   expected_shortfall
+   infer_periods_per_year
+   information_ratio
+   omega_ratio
+   risk_summary
+   sortino_ratio
+   tracking_error
+   traffic_light_zone
+   ulcer_index
+   value_at_risk
+   var_backtest
+   var_independence_test
+
+.. autosummary::
+   :toctree: classes
+   :template: timeseries_class.rst
+
+   ChristoffersenTestResult
+   KupiecTestResult
+   RiskSummary
+   TrafficLight
+   TrafficLightZone
+   VaRMethod
+
 Technical Analysis
 ------------------
 

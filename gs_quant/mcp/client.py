@@ -12,6 +12,7 @@ software distributed under the License is distributed on an
 KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
+Portions copyright Senanur Çetin. Licensed under Apache 2.0 license
 """
 
 from __future__ import annotations
@@ -190,7 +191,7 @@ def tool_param_names(tool: Any) -> list[str]:
     Required parameters come first (preserving their JSON Schema declaration order), followed by
     optional ones. JSON Schema ``properties`` dicts preserve insertion order in Python.
     """
-    schema = getattr(tool, "inputSchema", None) or {}
+    schema = getattr(tool, "input_schema", None) or getattr(tool, "inputSchema", None) or {}
     props = schema.get("properties") or {}
     required = schema.get("required") or []
     required_set = set(required)
@@ -264,7 +265,7 @@ async def do_describe_tool(client: Client, name: str) -> Any | None:
         print(f"[red]tool not found:[/] {name}")
         return None
 
-    schema = getattr(tool, "inputSchema", None) or {}
+    schema = getattr(tool, "input_schema", None) or getattr(tool, "inputSchema", None) or {}
     props = schema.get("properties") or {}
     required = set(schema.get("required") or [])
 
