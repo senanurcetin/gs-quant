@@ -644,14 +644,14 @@ def var_independence_test(
     **Usage**
 
     Let :math:`n_{ij}` count the periods in which state :math:`i` (1 for an exceedance) was followed by state
-    :math:`j`, :math:`\pi_0 = n_{01} / (n_{00} + n_{01})`, :math:`\pi_1 = n_{11} / (n_{10} + n_{11})` and
-    :math:`\pi = (n_{01} + n_{11}) / n`:
+    :math:`j`, :math:`\\pi_0 = n_{01} / (n_{00} + n_{01})`, :math:`\\pi_1 = n_{11} / (n_{10} + n_{11})` and
+    :math:`\\pi = (n_{01} + n_{11}) / n`:
 
-    :math:`LR_{ind} = -2 \ln \left[ (1-\pi)^{n_{00}+n_{10}} \pi^{n_{01}+n_{11}} \right]
-    + 2 \ln \left[ (1-\pi_0)^{n_{00}} \pi_0^{n_{01}} (1-\pi_1)^{n_{10}} \pi_1^{n_{11}} \right]`
+    :math:`LR_{ind} = -2 \\ln \\left[ (1-\\pi)^{n_{00}+n_{10}} \\pi^{n_{01}+n_{11}} \\right]
+    + 2 \\ln \\left[ (1-\\pi_0)^{n_{00}} \\pi_0^{n_{01}} (1-\\pi_1)^{n_{10}} \\pi_1^{n_{11}} \\right]`
 
-    which is asymptotically :math:`\chi^2(1)`. The conditional coverage statistic is :math:`LR_{pof} + LR_{ind}`,
-    asymptotically :math:`\chi^2(2)`. With no exceedances, or only exceedances, there is nothing to test and the
+    which is asymptotically :math:`\\chi^2(1)`. The conditional coverage statistic is :math:`LR_{pof} + LR_{ind}`,
+    asymptotically :math:`\\chi^2(2)`. With no exceedances, or only exceedances, there is nothing to test and the
     independence statistic is 0.
 
     **See also**
@@ -728,9 +728,9 @@ def traffic_light_zone(exceedances: int, observations: int, confidence: float = 
     ==========  ========================
     Zone        Cumulative probability
     ==========  ========================
-    green       :math:`F < 95\%`
-    yellow      :math:`95\% \le F < 99.99\%`
-    red         :math:`F \ge 99.99\%`
+    green       :math:`F < 95\\%`
+    yellow      :math:`95\\% \\le F < 99.99\\%`
+    red         :math:`F \\ge 99.99\\%`
     ==========  ========================
 
     For 250 observations at 99% this reproduces the Basel Committee's zones: 0 to 4 exceedances are green, 5 to 9
