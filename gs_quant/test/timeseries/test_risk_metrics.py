@@ -52,8 +52,11 @@ def _daily(values, start='2021-01-04') -> pd.Series:
 
 @pytest.fixture(scope='module')
 def normal_returns() -> pd.Series:
-    """Large iid normal sample with known parameters, for calibration checks"""
-    return _daily(np.random.default_rng(42).normal(0.0004, 0.01, 100_000))
+    """Large iid normal sample with known parameters, for calibration checks
+
+    Integer indexed: 100,000 business days would run past the year 2262, the limit of pandas' nanosecond timestamps.
+    """
+    return pd.Series(np.random.default_rng(42).normal(0.0004, 0.01, 100_000))
 
 
 @pytest.fixture(scope='module')

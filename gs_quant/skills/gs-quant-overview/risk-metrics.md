@@ -117,10 +117,10 @@ from gs_quant.timeseries.risk_metrics import (
 prices = 100 * (1 + daily_returns).cumprod()
 benchmark = pd.Series(np.random.default_rng(1).normal(0.0004, 0.01, 750), index=dates)
 
-drawdown(prices)                        # fall from the running peak, <= 0
-ulcer_index(prices, w='6m')             # root mean square drawdown
-calmar_ratio(prices, w=250)             # annualized return / |max drawdown|
-sortino_ratio(daily_returns, mar=0.0)   # excess return per unit of downside deviation
+drawdown(prices)  # fall from the running peak, <= 0
+ulcer_index(prices, w='6m')  # root mean square drawdown
+calmar_ratio(prices, w=250)  # annualized return / |max drawdown|
+sortino_ratio(daily_returns, mar=0.0)  # excess return per unit of downside deviation
 downside_deviation(daily_returns, mar=0.0)
 omega_ratio(daily_returns, threshold=0.0)
 tracking_error(daily_returns, benchmark)
