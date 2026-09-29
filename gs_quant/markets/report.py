@@ -12,12 +12,13 @@ software distributed under the License is distributed on an
 KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
+Portions copyright Senanur Çetin. Licensed under Apache 2.0 license
 """
 
 import datetime as dt
 from enum import Enum, auto
 from time import sleep
-from typing import OrderedDict, Union
+from typing import Optional, OrderedDict, Union
 
 import numpy as np
 import pandas as pd
@@ -32,6 +33,7 @@ from gs_quant.api.gs.thematics import GsThematicApi, Region, ThematicMeasure
 from gs_quant.common import Currency, PositionTag, PositionType, ReportParameters
 from gs_quant.datetime import business_day_offset, prev_business_date
 from gs_quant.errors import MqValueError
+from gs_quant.lazy_defaults import TODAY, lazy_defaults
 from gs_quant.markets.report_utils import _get_ppaa_batches
 from gs_quant.target.coordinates import MDAPIDataBatchResponse
 from gs_quant.target.data import DataQuery, DataQueryResponse
@@ -597,7 +599,7 @@ class PerformanceReport(Report):
         self,
         start_date: dt.date,
         end_date: dt.date,
-        asset_metadata_fields: list[str] = ["id", "name", "ticker"],
+        asset_metadata_fields: Optional[list[str]] = None,
         include_all_business_days: bool = True,
         position_type: PositionType = None,
     ) -> pd.DataFrame:
@@ -613,13 +615,16 @@ class PerformanceReport(Report):
         are the net weights of the positions on the corresponding dates.
 
         """
-        asset_metadata_fields.append("netWeight")
+        # Build a new list: appending to the argument would mutate the caller's list, or the shared default
+        fields = ["id", "name", "ticker"] if asset_metadata_fields is None else list(asset_metadata_fields)
+        if "netWeight" not in fields:
+            fields.append("netWeight")
         try:
             return pd.DataFrame(
                 self.get_positions_data(
                     start=start_date,
                     end=end_date,
-                    fields=asset_metadata_fields,
+                    fields=fields,
                     include_all_business_days=include_all_business_days,
                     position_type=position_type,
                 )
@@ -812,10 +817,11 @@ class PerformanceReport(Report):
         formatted_aum_data = [{'date': data.date.strftime('%Y-%m-%d'), 'aum': data.aum} for data in aum_data]
         GsReportApi.upload_custom_aum(self.id, formatted_aum_data, clear_existing_data)
 
+    @lazy_defaults
     def get_positions_data(
         self,
         start: dt.date = None,
-        end: dt.date = dt.date.today(),
+        end: dt.date = TODAY,
         fields: [str] = None,
         include_all_business_days: bool = False,
         position_type: PositionType = None,

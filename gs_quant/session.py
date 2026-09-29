@@ -12,6 +12,7 @@ software distributed under the License is distributed on ans
 KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
+Portions copyright Senanur Çetin. Licensed under Apache 2.0 license
 """
 
 import asyncio
@@ -51,6 +52,17 @@ logger = logging.getLogger(__name__)
 API_VERSION = 'v1'
 DEFAULT_APPLICATION = 'gs-quant'
 DEFAULT_TIMEOUT = 65
+
+# The event loop only keeps weak references to tasks, so a fire-and-forget task can be garbage collected before it
+# finishes. Hold a strong reference until each background task is done.
+_background_tasks: set = set()
+
+
+def _run_in_background(loop: asyncio.AbstractEventLoop, coro) -> asyncio.Task:
+    task = loop.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    return task
 
 
 @unique
@@ -394,7 +406,7 @@ class GsSession(ContextBase):
             if self._has_async_session():
                 try:
                     loop = asyncio.get_running_loop()
-                    loop.create_task(self._close_async())
+                    _run_in_background(loop, self._close_async())
                 except RuntimeError:
                     asyncio.run(self._close_async())
         if self.__close_on_exit:
@@ -458,7 +470,7 @@ class GsSession(ContextBase):
             except RuntimeError:
                 loop = None
             if loop and loop.is_running():
-                loop.create_task(self._close_async())
+                _run_in_background(loop, self._close_async())
             else:
                 try:
                     asyncio.run(self._close_async())
