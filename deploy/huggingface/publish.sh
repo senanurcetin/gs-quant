@@ -1,28 +1,31 @@
 #!/usr/bin/env bash
-# Publish the application as a Docker Space.
+# Publish the live demo (the dashboard exported as one HTML file) as a static Hugging Face Space. Static Spaces are free;
+# Docker Spaces need a PRO subscription.
 # Usage: HF_TOKEN=<write token> deploy/huggingface/publish.sh [owner/space-name]
 set -euo pipefail
 
 SPACE="${1:-senanurcetin/gs-quant-risk}"
 : "${HF_TOKEN:?Set HF_TOKEN to a Hugging Face token with write access}"
 
+ROOT="$(git rev-parse --show-toplevel)"
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+
 # Create the Space when it does not exist yet (HTTP 409 means it already does); public unless HF_PRIVATE=true
 RESPONSE="$(curl -sS -w '\n%{http_code}' -X POST https://huggingface.co/api/repos/create \
   -H "Authorization: Bearer ${HF_TOKEN}" -H 'Content-Type: application/json' \
-  -d "{\"type\":\"space\",\"sdk\":\"docker\",\"name\":\"${SPACE#*/}\",\"organization\":\"${SPACE%%/*}\",\"private\":${HF_PRIVATE:-false}}")"
+  -d "{\"type\":\"space\",\"sdk\":\"static\",\"name\":\"${SPACE#*/}\",\"organization\":\"${SPACE%%/*}\",\"private\":${HF_PRIVATE:-false}}")"
 STATUS="${RESPONSE##*$'\n'}"
 if [ "$STATUS" != "200" ] && [ "$STATUS" != "409" ]; then
   echo "Creating the Space failed (HTTP $STATUS): ${RESPONSE%$'\n'*}" >&2
   exit 1
 fi
 
-ROOT="$(git rev-parse --show-toplevel)"
-WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
-
-# A Space needs its own README.md (the card) at the root; the repository's README stays untouched.
-git -C "$ROOT" archive HEAD | tar -x -C "$WORK"
-cp "$ROOT/deploy/huggingface/README.md" "$WORK/README.md"
+# The page is built from this checkout, so the Space shows the code that is committed here
+cd "$ROOT"
+python3 -m gs_quant.apps.risk_dashboard export -o "$WORK/index.html"
+test "$(wc -c < "$WORK/index.html")" -gt 500000
+cp deploy/huggingface/README.md "$WORK/README.md"
 
 cd "$WORK"
 git init -q -b main
