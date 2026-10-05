@@ -40,6 +40,14 @@ class Settings:
     max_body_bytes: int = 1_000_000
     max_runs: int = 200  # oldest saved runs are dropped beyond this
     max_portfolios: int = 50  # named portfolios are never dropped: saving one more is refused
+    rate_limit: int = 600  # requests per minute from one caller to /api/, 0 for no limit
+    max_auth_failures: int = (
+        10  # wrong tokens from one caller within lockout_seconds before it is locked out, 0 for never
+    )
+    lockout_seconds: int = 300
+    trust_proxy: bool = (
+        False  # take the caller's address from X-Forwarded-For: only behind a reverse proxy that sets it
+    )
     log_level: str = 'INFO'
     market_data: Optional[str] = 'yahoo'  # where prices can be loaded from by symbol: 'yahoo', 'stooq' or None for off
 
@@ -61,6 +69,10 @@ class Settings:
                 max_body_bytes=int(get('MAX_BODY_BYTES') or defaults.max_body_bytes),
                 max_runs=int(get('MAX_RUNS') or defaults.max_runs),
                 max_portfolios=int(get('MAX_PORTFOLIOS') or defaults.max_portfolios),
+                rate_limit=int(get('RATE_LIMIT') or defaults.rate_limit),
+                max_auth_failures=int(get('MAX_AUTH_FAILURES') or defaults.max_auth_failures),
+                lockout_seconds=int(get('LOCKOUT_SECONDS') or defaults.lockout_seconds),
+                trust_proxy=(get('TRUST_PROXY') or '').lower() in ('1', 'true', 'yes'),
                 log_level=(get('LOG_LEVEL') or defaults.log_level).upper(),
                 market_data=cls._market_data(get('MARKET_DATA'), defaults.market_data),
             )
@@ -84,6 +96,10 @@ class Settings:
             raise ValueError('max_runs must be at least 1')
         if self.max_portfolios < 1:
             raise ValueError('max_portfolios must be at least 1')
+        if self.rate_limit < 0 or self.max_auth_failures < 0:
+            raise ValueError('rate_limit and max_auth_failures cannot be negative')
+        if self.lockout_seconds < 1:
+            raise ValueError('lockout_seconds must be at least 1')
         if self.log_level not in LOG_LEVELS:
             raise ValueError(f'log_level must be one of {", ".join(LOG_LEVELS)}')
         if self.market_data is not None and self.market_data not in PROVIDERS:

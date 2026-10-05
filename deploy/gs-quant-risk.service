@@ -1,0 +1,21 @@
+# systemd unit for running the application without Docker, behind a reverse proxy on the same machine.
+# Install: copy to /etc/systemd/system/, put the settings in /etc/gs-quant-risk.env (mode 600), then
+#   systemctl daemon-reload && systemctl enable --now gs-quant-risk
+[Unit]
+Description=gs-quant risk analytics application
+After=network.target
+
+[Service]
+User=gs-quant-risk
+EnvironmentFile=/etc/gs-quant-risk.env
+# RISK_APP_API_TOKEN=...  RISK_APP_DATABASE=/var/lib/gs-quant-risk/runs.db  RISK_APP_TRUST_PROXY=1
+ExecStart=/opt/gs-quant-risk/.venv/bin/gs-quant-risk serve --host 127.0.0.1 --port 8000
+StateDirectory=gs-quant-risk
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

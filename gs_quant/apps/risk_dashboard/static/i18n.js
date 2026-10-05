@@ -450,6 +450,14 @@
       "Böyle bir portföy yok"
     ],
     [
+      "^Too many requests: try again in (\\d+) seconds$",
+      "Çok fazla istek: $1 saniye sonra yeniden dene"
+    ],
+    [
+      "^Too many failed attempts: try again in (\\d+) seconds$",
+      "Çok fazla başarısız deneme: $1 saniye sonra yeniden dene"
+    ],
+    [
       "^(Stooq|Yahoo Finance) does not know this symbol$",
       "$1 bu sembolü tanımıyor"
     ],

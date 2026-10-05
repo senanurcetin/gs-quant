@@ -15,7 +15,9 @@ under the License.
 """
 
 import argparse
+import dataclasses
 import logging
+import sqlite3
 import sys
 from pathlib import Path
 from typing import Optional
@@ -108,17 +110,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 0
 
     try:
-        settings = Settings(
-            host=args.host,
-            port=args.port,
-            database=args.database,
-            api_token=settings.api_token,
-            max_body_bytes=settings.max_body_bytes,
-            max_runs=settings.max_runs,
-            max_portfolios=settings.max_portfolios,
-            log_level=settings.log_level,
-            market_data=settings.market_data,
-        )
+        settings = dataclasses.replace(settings, host=args.host, port=args.port, database=args.database)
         settings.validate()
     except ValueError as e:
         print(f'error: {e}', file=sys.stderr)
@@ -134,13 +126,21 @@ def main(argv: Optional[list[str]] = None) -> int:
     import uvicorn
 
     from .app import create_app
+    from .store import RunStore, StoreVersionError
+
+    try:  # a database that cannot be used is reported now, not at the first request
+        schema = RunStore(settings.database, settings.max_runs, settings.max_portfolios).schema_version()
+    except (OSError, sqlite3.Error, StoreVersionError) as e:
+        print(f'error: cannot use the database {settings.database}: {e}', file=sys.stderr)
+        return 2
 
     configure_logging(settings.log_level)
     logging.getLogger(LOGGER).info(
-        'Serving on http://%s:%d, saved analyses in %s, access token %s, market data %s',
+        'Serving on http://%s:%d, saved analyses in %s (database version %d), access token %s, market data %s',
         settings.host,
         settings.port,
         settings.database,
+        schema,
         'required' if settings.api_token else 'not required',
         settings.market_data or 'off',
     )
