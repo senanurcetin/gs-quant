@@ -267,6 +267,21 @@
     "Saving…": "Kaydediliyor…",
     "Saved as “{name}”.": "“{name}” adıyla kaydedildi.",
     "Delete “{name}”?": "“{name}” silinsin mi?",
+    "What if? Shocks of your own": "Ya şöyle olursa? Kendi şoklarını gir",
+    "Enter how much each asset would move at once, in percent (-10 is a fall of 10%). The effect on the portfolio is the weighted sum, compared with the VaR and the expected shortfall.": "Her varlığın bir anda ne kadar hareket edeceğini yüzde olarak gir (-10, %10 düşüş demektir). Portföye etkisi ağırlıklı toplamdır; VaR ve beklenen kayıpla karşılaştırılır.",
+    "What-if scenarios": "Ya şöyle olursa senaryoları",
+    "Add a scenario": "Senaryo ekle",
+    "Scenario": "Senaryo",
+    "{asset} (%)": "{asset} (%)",
+    "Effect": "Etki",
+    "× VaR": "× VaR",
+    "× ES": "× ES",
+    "Scenario name": "Senaryo adı",
+    "Shock of {asset} (%)": "{asset} şoku (%)",
+    "Remove": "Kaldır",
+    "Remove {name}": "{name} senaryosunu kaldır",
+    "Scenario {n}": "Senaryo {n}",
+    "At most five scenarios.": "En fazla beş senaryo olabilir.",
     "Green": "Yeşil",
     "Yellow": "Sarı",
     "Red": "Kırmızı",
@@ -411,6 +426,10 @@
     [
       "^The saved run \\\"(.*)\\\" can no longer be analysed: (.*)$",
       "“$1” kaydı artık analiz edilemiyor: $2"
+    ],
+    [
+      "^Scenario \\\"(.*)\\\": unknown asset \\\"(.*)\\\"$",
+      "“$1” senaryosunda bilinmeyen varlık: “$2”"
     ],
     [
       "^(Stooq|Yahoo Finance) does not know this symbol$",

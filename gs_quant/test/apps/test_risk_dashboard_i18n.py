@@ -130,6 +130,7 @@ def test_server_messages_are_matched_by_the_patterns():
         'Prices are in TRY, converted at the daily rate of USDTRY=X',
         'The assets are quoted in different currencies, so prices were converted to TRY',
         'The rolling window (250) must be shorter than the series (100 returns)',
+        'Scenario "Crash": unknown asset "Z"',
     ]
     script = (
         "global.window = {}; global.localStorage = { getItem() { return 'tr'; }, setItem() {} };"

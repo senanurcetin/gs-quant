@@ -260,3 +260,58 @@ def test_a_turkish_browser_gets_turkish_and_a_server_error_is_translated(server,
     page.click('#market-load')
     page.locator('#status.error').wait_for()
     assert 'bulunamadı' in page.inner_text('#status') or 'tanımıyor' in page.inner_text('#status')
+
+
+def test_what_if_scenarios(server, browser):
+    page = browser.new_context(locale='en-US').new_page()
+    problems = []
+    page.on('pageerror', lambda e: problems.append(str(e)))
+    page.on('console', lambda m: problems.append(m.text) if m.type in ('error', 'warning') else None)
+    page.goto(server)
+    page.wait_for_selector('#results:not([hidden])')
+    page.click('input[name=mode][value=portfolio]')
+    page.click('#portfolio-sample')
+    page.wait_for_selector('#portfolio-section:not([hidden])')
+    assert page.is_visible('#whatif-add') and not page.is_visible('#table-whatif')
+
+    # everything falls 10%: the portfolio falls 10%, a multiple of the VaR
+    page.click('#whatif-add')
+    effect = page.locator('#table-whatif .effect').first
+    effect.filter(has_text='−10.00%').wait_for()
+    assert re.fullmatch(r'\d+\.\d×', page.locator('#table-whatif .multiple').first.inner_text())
+    assert page.locator('#table-whatif input[data-asset]').count() == 3
+
+    # one asset stays put: the loss follows the weights (a third each)
+    page.locator('#table-whatif input[data-asset]').first.fill('0')
+    page.locator('#table-whatif input[data-asset]').first.press('Tab')
+    effect.filter(has_text='−6.67%').wait_for()
+    assert page.locator('#table-whatif input[data-asset]').first.input_value() == '0'  # what was typed is kept
+
+    page.click('#whatif-add')
+    page.locator('#table-whatif tbody tr').nth(1).wait_for()
+    page.locator('#table-whatif input[data-field=name]').nth(1).fill('Second')
+    page.locator('#table-whatif input[data-field=name]').nth(1).press('Tab')
+    page.wait_for_selector('#results:not(.loading)')
+
+    # saved with the analysis, and back when it is opened
+    page.fill('#run-name', 'With scenarios')
+    page.click('#save-form button')
+    page.wait_for_selector('#report:not([hidden])')
+    page.reload()
+    page.wait_for_selector('#history li')
+    page.click('#history li button[data-action=open]')
+    page.locator('#table-whatif tbody tr').nth(1).wait_for()
+    assert page.locator('#table-whatif input[data-field=name]').nth(1).input_value() == 'Second'
+    page.locator('#table-whatif .effect').first.filter(has_text='−6.67%').wait_for()
+
+    # removing a scenario, and the Turkish page
+    page.locator('#table-whatif button[data-remove]').first.click()
+    page.locator('#table-whatif tbody tr').nth(1).wait_for(state='detached')
+    assert page.locator('#table-whatif input[data-field=name]').first.input_value() == 'Second'
+    page.click('#lang')
+    page.locator('#whatif-title').filter(has_text='Ya şöyle olursa').wait_for()
+    assert 'Senaryo' in page.inner_text('#table-whatif') and 'Etki' in page.inner_text('#table-whatif')
+
+    page.click('#lang')
+    page.locator('#whatif-title').filter(has_text='What if?').wait_for()
+    assert problems == []

@@ -94,6 +94,7 @@
       body[dataset.kind] = dataset.values;
     }
     if (dataset.dates) body.dates = dataset.dates;
+    if (dataset.scenarios && dataset.scenarios.length) body.scenarios = dataset.scenarios.map(({ name, shocks }) => ({ name, shocks }));
     return body;
   }
 
@@ -704,6 +705,96 @@
   }
 
   // ------------------------------------------------------------------------------------------------------------------
+  // What if: shocks of the user's own, answered by the server
+  // ------------------------------------------------------------------------------------------------------------------
+
+  const SERIES_KEY = 'series'; // what the server calls a single series in a scenario
+  const assetLabel = (name) => (name === SERIES_KEY ? t('Series') : name);
+  const shockText = (fraction) => String(Number((fraction * 100).toFixed(2)));
+
+  function whatIfCell(scenario, result) {
+    return [
+      element('td', { className: 'effect', text: pct(scenario.loss, 2) }),
+      element('td', { className: 'multiple', text: isNumber(scenario.var_multiple) ? `${num(scenario.var_multiple, 1)}×` : DASH }),
+      element('td', { className: 'multiple', text: isNumber(scenario.es_multiple) ? `${num(scenario.es_multiple, 1)}×` : DASH }),
+    ];
+  }
+
+  function renderWhatIf(result) {
+    const editable = !api.staticMode;
+    const section = $('#whatif-section');
+    const results = result.scenarios || [];
+    section.hidden = editable ? false : !results.length;
+    $('#whatif-add').hidden = !editable;
+    if (section.hidden) return;
+    const table = $('#table-whatif');
+    const asked = (state.dataset && state.dataset.scenarios) || [];
+    table.hidden = editable ? !asked.length : false;
+    if (table.hidden) return;
+
+    const names = result.portfolio ? result.portfolio.assets.map((a) => a.name) : [SERIES_KEY];
+    const signature = JSON.stringify([names, editable ? asked.length : results.length, window.I18n.lang]);
+    if (table.dataset.signature !== signature) {
+      table.dataset.signature = signature;
+      table.replaceChildren();
+      const heads = [t('Scenario'), ...names.map((name) => t('{asset} (%)', { asset: assetLabel(name) })), t('Effect'), t('× VaR'), t('× ES')];
+      if (editable) heads.push('');
+      table.appendChild(element('thead', {}, [element('tr', {}, heads.map((h) => element('th', { text: h, attributes: { scope: 'col' } })))]));
+      const body = element('tbody');
+      (editable ? asked : results).forEach((scenario, i) => {
+        const cells = [];
+        if (editable) {
+          cells.push(element('th', { attributes: { scope: 'row' } }, [element('input', { attributes: { type: 'text', maxlength: '60', value: scenario.name, 'aria-label': t('Scenario name'), 'data-field': 'name' } })]));
+          for (const name of names) {
+            const shock = scenario.shocks[name] || 0;
+            cells.push(element('td', {}, [element('input', { attributes: { type: 'number', step: 'any', inputmode: 'decimal', value: shockText(shock), 'aria-label': t('Shock of {asset} (%)', { asset: assetLabel(name) }), 'data-asset': name } })]));
+          }
+        } else {
+          cells.push(element('th', { text: scenario.name, attributes: { scope: 'row' } }));
+          for (const asset of scenario.assets) cells.push(element('td', { text: pct(asset.shock, 1) }));
+        }
+        cells.push(...whatIfCell(scenario, result));
+        if (editable) cells.push(element('td', {}, [element('button', { className: 'button danger', text: t('Remove'), attributes: { type: 'button', 'data-remove': String(i), 'aria-label': t('Remove {name}', { name: scenario.name }) } })]));
+        body.appendChild(element('tr', {}, cells));
+      });
+      table.appendChild(body);
+    }
+    // the inputs keep what was typed; only the answers are rewritten
+    table.querySelectorAll('tbody tr').forEach((row, i) => {
+      const scenario = results[i];
+      if (!scenario) return;
+      const [effect, varMultiple, esMultiple] = whatIfCell(scenario, result);
+      row.querySelector('.effect').replaceWith(effect);
+      row.querySelectorAll('.multiple')[0].replaceWith(varMultiple);
+      row.querySelectorAll('.multiple')[1].replaceWith(esMultiple);
+    });
+  }
+
+  function readScenarios() {
+    return [...document.querySelectorAll('#table-whatif tbody tr')].map((row, i) => {
+      const shocks = {};
+      for (const input of row.querySelectorAll('input[data-asset]')) {
+        const value = Number(input.value);
+        shocks[input.dataset.asset] = Number.isFinite(value) ? value / 100 : 0;
+      }
+      return { name: row.querySelector('input[data-field="name"]').value.trim() || t('Scenario {n}', { n: i + 1 }), shocks };
+    });
+  }
+
+  function addScenario() {
+    const dataset = state.dataset;
+    if (!dataset || !state.result) return;
+    const names = state.result.portfolio ? state.result.portfolio.assets.map((a) => a.name) : [SERIES_KEY];
+    const scenarios = dataset.scenarios || [];
+    if (scenarios.length >= 5) {
+      setStatus(t('At most five scenarios.'), true);
+      return;
+    }
+    dataset.scenarios = [...scenarios, { name: t('Scenario {n}', { n: scenarios.length + 1 }), shocks: Object.fromEntries(names.map((n) => [n, -0.1])) }];
+    scheduleRun(0);
+  }
+
+  // ------------------------------------------------------------------------------------------------------------------
   // Charts
   // ------------------------------------------------------------------------------------------------------------------
 
@@ -939,6 +1030,7 @@
     renderTests(result);
     renderPortfolio(result);
     renderStress(result);
+    renderWhatIf(result);
     renderNotes(result);
     drawGrowth($('#chart-growth'), result);
     drawVar($('#chart-var'), result);
@@ -1413,11 +1505,11 @@
       const names = Object.keys(request.assets);
       return {
         id: 'portfolio', portfolio: true, simulated: false, title: run.name, kind: request.kind, assets: request.assets,
-        dates: request.dates || null, weights: request.weights || equalWeights(names),
+        dates: request.dates || null, weights: request.weights || equalWeights(names), scenarios: request.scenarios || [],
       };
     }
     const kind = request.prices ? 'prices' : 'returns';
-    return { id: 'upload', simulated: false, title: run.name, kind, values: request[kind], dates: request.dates || null };
+    return { id: 'upload', simulated: false, title: run.name, kind, values: request[kind], dates: request.dates || null, scenarios: request.scenarios || [] };
   }
 
   async function openRun(id) {
@@ -1664,6 +1756,18 @@
     // saved runs
     $('#save-form').addEventListener('submit', saveRun);
     $('#report').addEventListener('click', () => state.savedRun && downloadReport(state.savedRun.id));
+    $('#whatif-add').addEventListener('click', addScenario);
+    $('#table-whatif').addEventListener('change', () => {
+      if (!state.dataset) return;
+      state.dataset.scenarios = readScenarios();
+      scheduleRun(250);
+    });
+    $('#table-whatif').addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-remove]');
+      if (!button || !state.dataset) return;
+      state.dataset.scenarios = readScenarios().filter((scenario, i) => i !== Number(button.dataset.remove));
+      scheduleRun(0);
+    });
     $('#compare').addEventListener('click', compareSelected);
     $('#compare-close').addEventListener('click', () => {
       $('#compare-panel').hidden = true;

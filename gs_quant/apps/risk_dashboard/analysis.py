@@ -42,6 +42,8 @@ HISTOGRAM_BINS = 40
 HISTOGRAM_TAIL = 0.005  # the histogram spans the 0.5th to 99.5th percentile; a few outliers must not squash it
 QQ_MAX_POINTS = 300
 STRESS_HORIZONS = (1, 5, 20)  # periods
+MAX_SCENARIOS = 5
+SERIES_KEY = 'series'  # what a single series is called in a what-if scenario
 DEFAULT_PERIODS_PER_YEAR = 252
 
 
@@ -332,3 +334,43 @@ def comparison_metrics(result: dict) -> dict:
     if 'portfolio' in result:
         metrics['diversification_ratio'] = result['portfolio']['diversification_ratio']
     return metrics
+
+
+def what_if(
+    scenarios: list[tuple[str, dict[str, float]]], weights: dict[str, float], var: Optional[float], es: Optional[float]
+) -> list[dict]:
+    """The immediate effect of shocks the user chose, on a portfolio held at the given weights
+
+    A scenario says how much each asset moves at once, as a fraction (-0.1 is a fall of 10%); an asset it does not name does
+    not move. The effect on the portfolio is the weighted sum, and a loss is also given as a multiple of the VaR and the
+    expected shortfall, to say how it compares with what the model considers an ordinary bad period.
+    """
+    results = []
+    for name, shocks in scenarios:
+        unknown = [asset for asset in shocks if asset not in weights]
+        if unknown:
+            raise AnalysisError(f'Scenario "{name}": unknown asset "{unknown[0]}"')
+        contributions = {asset: weight * shocks.get(asset, 0.0) for asset, weight in weights.items()}
+        loss = sum(contributions.values())
+
+        def multiple(risk: Optional[float]) -> Optional[float]:
+            return clean(loss / risk, 3) if risk is not None and risk < 0 and loss < 0 else None
+
+        results.append(
+            {
+                'name': name,
+                'loss': clean(loss),
+                'var_multiple': multiple(var),
+                'es_multiple': multiple(es),
+                'assets': [
+                    {
+                        'name': asset,
+                        'weight': clean(weight),
+                        'shock': clean(shocks.get(asset, 0.0)),
+                        'contribution': clean(contributions[asset]),
+                    }
+                    for asset, weight in weights.items()
+                ],
+            }
+        )
+    return results

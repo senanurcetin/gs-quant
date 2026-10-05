@@ -60,6 +60,31 @@ SECURITY_HEADERS = {
 }
 
 
+class Scenario(BaseModel):
+    """A what-if: how much each asset moves at once, as a fraction (-0.1 is a fall of 10%). An asset left out stays put."""
+
+    model_config = ConfigDict(extra='forbid')
+
+    name: str = Field(..., min_length=1, max_length=60)
+    shocks: dict[str, float] = Field(..., max_length=portfolio.MAX_ASSETS)
+
+    @field_validator('name')
+    @classmethod
+    def _printable(cls, name: str) -> str:
+        name = name.strip()
+        if not name or not name.isprintable():
+            raise ValueError('The name must be printable text')
+        return name
+
+    @field_validator('shocks')
+    @classmethod
+    def _plausible(cls, shocks: dict[str, float]) -> dict[str, float]:
+        for asset, shock in shocks.items():
+            if not -1 <= shock <= 10:  # a fall of more than 100% is impossible, a rise of 1,000% is not a scenario
+                raise ValueError(f'The shock of {asset[:40]} must be between -100% and +1000%')
+        return shocks
+
+
 class _Settings(BaseModel):
     """The model settings shared by every kind of request"""
 
@@ -70,6 +95,7 @@ class _Settings(BaseModel):
     window: int = Field(250, ge=30, le=2000)
     minimum_acceptable_return: float = Field(0.0, ge=-0.5, le=0.5)
     periods_per_year: Optional[int] = Field(None, ge=1, le=366)
+    scenarios: list[Scenario] = Field(default_factory=list, max_length=analysis.MAX_SCENARIOS)
 
 
 class AnalyzeRequest(_Settings):
@@ -128,7 +154,7 @@ def execute(kind: str, params: _Settings) -> dict:
     if kind == 'single':
         values, source = (params.prices, 'prices') if params.prices is not None else (params.returns, 'returns')
         returns, assumptions = analysis.build_series(values, params.dates, source)
-        return analysis.analyze(
+        result = analysis.analyze(
             returns,
             confidence=params.confidence,
             method=VaRMethod(params.method),
@@ -137,17 +163,25 @@ def execute(kind: str, params: _Settings) -> dict:
             periods_per_year=params.periods_per_year,
             assumptions=assumptions,
         )
-    return portfolio.analyze_portfolio(
-        params.assets,
-        params.weights,
-        params.dates,
-        params.kind,
-        confidence=params.confidence,
-        method=VaRMethod(params.method),
-        window=params.window,
-        minimum_acceptable_return=params.minimum_acceptable_return,
-        periods_per_year=params.periods_per_year,
-    )
+        weights = {analysis.SERIES_KEY: 1.0}
+    else:
+        result = portfolio.analyze_portfolio(
+            params.assets,
+            params.weights,
+            params.dates,
+            params.kind,
+            confidence=params.confidence,
+            method=VaRMethod(params.method),
+            window=params.window,
+            minimum_acceptable_return=params.minimum_acceptable_return,
+            periods_per_year=params.periods_per_year,
+        )
+        weights = {asset['name']: asset['weight'] for asset in result['portfolio']['assets']}
+    if params.scenarios:
+        risk = analysis.headline(result)
+        scenarios = [(s.name, {asset.strip(): shock for asset, shock in s.shocks.items()}) for s in params.scenarios]
+        result['scenarios'] = analysis.what_if(scenarios, weights, risk['var'], risk['expected_shortfall'])
+    return result
 
 
 def _error(status: int, message: str, **extra) -> JSONResponse:
