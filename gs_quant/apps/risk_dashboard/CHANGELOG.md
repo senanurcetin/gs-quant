@@ -6,6 +6,8 @@ release are the section of that version below, and are published with it.
 ## [Unreleased]
 
 ### Changed
+- The image upgrades the operating system packages of its base image when it is built, which closes the `libpcre2` finding
+  the vulnerability scan reported.
 - Workflows use `actions/checkout@v5`, `setup-python@v6` and `upload-pages-artifact@v4` (the old ones run on a retired
   runtime); Dependabot watches the actions and the Python packages weekly.
 - Turkish: "Growth of 100" reads naturally ("100 birimlik yatırımın değeri"), and the Christoffersen test is named as a test.

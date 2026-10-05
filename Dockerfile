@@ -14,6 +14,9 @@ ENV PYTHONUNBUFFERED=1 \
     RISK_APP_PORT=8000 \
     RISK_APP_DATABASE=/data/runs.db
 
+# Security fixes of the base image's operating system packages that its latest tag has not picked up yet
+RUN apt-get update && apt-get upgrade -y --no-install-recommends && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /src
 COPY . /src
 RUN if [ -n "$VERSION" ]; then python deploy/pin_version.py "$VERSION"; fi \
