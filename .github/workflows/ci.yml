@@ -24,9 +24,9 @@ jobs:
       - name: Install ruff
         run: python -m pip install ruff
       - name: Lint
-        run: ruff check gs_quant examples
+        run: ruff check gs_quant
       - name: Check formatting
-        run: ruff format --check gs_quant examples
+        run: ruff format --check gs_quant
 
   test:
     name: Test (Python ${{ matrix.python-version }})
@@ -49,4 +49,4 @@ jobs:
       - name: Fail on invalid escape sequences and other compile-time warnings
         run: python -W error::SyntaxWarning -W error::DeprecationWarning -m compileall -q gs_quant
       - name: Run tests
-        run: python -m pytest gs_quant/test examples -q
+        run: python -m pytest gs_quant/test -q

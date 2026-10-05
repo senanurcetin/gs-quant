@@ -27,8 +27,8 @@ pytest.importorskip('pydantic')
 
 from starlette.testclient import TestClient  # noqa: E402
 
-from examples.risk_dashboard import analysis  # noqa: E402
-from examples.risk_dashboard.app import MAX_BODY_BYTES, STATIC_DIR, create_app  # noqa: E402
+from gs_quant.apps.risk_dashboard import analysis  # noqa: E402
+from gs_quant.apps.risk_dashboard.app import MAX_BODY_BYTES, STATIC_DIR, create_app  # noqa: E402
 from gs_quant.timeseries.helper import Window  # noqa: E402
 from gs_quant.timeseries.risk_metrics import (  # noqa: E402
     VaRMethod,
@@ -303,7 +303,9 @@ class TestAnalyze:
 
 class TestApi:
     def test_health(self, client):
-        assert client.get('/api/health').json() == {'status': 'ok'}
+        payload = client.get('/api/health').json()
+
+        assert payload['status'] == 'ok' and payload['version']
 
     def test_scenarios(self, client):
         payload = client.get('/api/scenarios').json()

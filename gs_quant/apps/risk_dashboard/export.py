@@ -16,15 +16,16 @@ under the License.
 
 import argparse
 import json
+from html import escape
 from pathlib import Path
 from typing import Optional
 
 from gs_quant.timeseries.risk_metrics import VaRMethod
 
 from . import analysis
-from .app import STATIC_DIR
 
 PACKAGE_DIR = Path(__file__).parent
+STATIC_DIR = PACKAGE_DIR / 'static'
 DEFAULT_CONFIDENCES = (0.9, 0.95, 0.975, 0.99)
 DEFAULT_WINDOW = 250
 SHARED_KEYS = ('dates', 'returns', 'growth', 'drawdown')
@@ -76,7 +77,7 @@ def _script_safe(text: str) -> str:
     return text.replace('</', '<\\/').replace('<!--', '<\\!--')
 
 
-def render(payload: dict) -> str:
+def render(payload: dict, title: Optional[str] = None) -> str:
     """A single self-contained HTML document: the dashboard with its scripts, styles and data inlined"""
     html = (STATIC_DIR / 'index.html').read_text(encoding='utf-8')
     css = (STATIC_DIR / 'styles.css').read_text(encoding='utf-8')
@@ -96,10 +97,10 @@ def render(payload: dict) -> str:
         if old not in html:
             raise ValueError(f'Expected {old!r} in index.html')
         html = html.replace(old, new)
-    return html.replace(
-        'Example application for',
-        'Static demo of the example application for',
-    )
+    html = html.replace('Risk analytics application for', 'Static copy of the risk analytics application for')
+    if title:
+        html = html.replace('<title>Risk Analytics Dashboard</title>', f'<title>{escape(title)}</title>')
+    return html
 
 
 def main(argv=None) -> None:
