@@ -167,3 +167,18 @@ def test_the_script_does_not_write_html():
     source = I18N.read_text(encoding='utf-8')
 
     assert 'innerHTML' not in source and 'insertAdjacentHTML' not in source and 'eval(' not in source
+
+
+def test_the_glossary_matches_the_translations():
+    """TR_TERMS.md says which Turkish term stands for which English one: it must not drift from i18n.js"""
+    glossary = (STATIC_DIR.parent / 'TR_TERMS.md').read_text(encoding='utf-8')
+    values = set(translations().values())
+    rows = [
+        [cell.strip() for cell in line.strip().strip('|').split('|')]
+        for line in glossary.splitlines()
+        if line.startswith('| ') and not line.startswith('| ---') and not line.startswith('| İngilizce')
+    ]
+
+    assert len(rows) >= 18
+    missing = [(row[0], row[1]) for row in rows if row[1].split(' (ES)')[0] not in values and row[1] not in values]
+    assert missing == [], 'the glossary names a Turkish text that is not in static/i18n.js'
