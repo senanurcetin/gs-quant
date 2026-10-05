@@ -299,6 +299,11 @@ cannot load prices, take a CSV, save an analysis or analyse a portfolio, which n
 `.github/workflows/pages.yml` when the application changes; for that to work, set *Settings, Pages, Source* to *GitHub
 Actions* once.
 
+The demo is also published as a free static Space on Hugging Face: **https://huggingface.co/spaces/senanurcetin/gs-quant-risk**
+(the same export). A Docker Space for the server itself needs a Hugging Face PRO subscription, so the Space carries the
+demo only. `deploy/huggingface/publish.sh` builds the export and pushes it with the Space card
+(`HF_TOKEN=<write token> deploy/huggingface/publish.sh`).
+
 ## Security notes
 
 The page is served with a strict Content Security Policy (`default-src 'none'`, scripts and styles only from the same

@@ -5,6 +5,9 @@ release are the section of that version below, and are published with it.
 
 ## [Unreleased]
 
+### Added
+- The live demo is also published as a static Hugging Face Space, built and pushed by `deploy/huggingface/publish.sh`.
+
 ## [0.1.1] - 2026-10-05
 
 ### Changed
