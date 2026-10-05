@@ -9,6 +9,8 @@ on:
 
 jobs:
   deploy:
+    # Only the upstream project publishes the gs_quant package: a release made in a fork must not try to
+    if: github.repository == 'goldmansachs/gs-quant'
 
     runs-on: ubuntu-latest
 

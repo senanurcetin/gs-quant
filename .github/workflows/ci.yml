@@ -4,6 +4,7 @@ on:
   push:
     branches: [master]
   pull_request:
+  workflow_call: # run by release.yml before a release is published
 
 permissions:
   contents: read
@@ -90,6 +91,13 @@ jobs:
           curl -fs http://127.0.0.1:8000/api/health
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/api/runs)" = 401
           curl -fs -H 'Authorization: Bearer ci-token-0123456789' http://127.0.0.1:8000/api/runs
+      - name: Reports the version it is given
+        run: |
+          docker build --build-arg VERSION=9.8.7 -t gs-quant-risk:versioned .
+          docker run -d --name versioned -p 8001:8000 -e RISK_APP_API_TOKEN=ci-token-0123456789 gs-quant-risk:versioned
+          for i in $(seq 1 30); do curl -fs http://127.0.0.1:8001/api/health && break; sleep 2; done
+          test "$(curl -fs http://127.0.0.1:8001/api/health | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')" = "9.8.7"
+          docker rm -f versioned
       - name: Container logs
         if: always()
         run: docker logs risk || true
