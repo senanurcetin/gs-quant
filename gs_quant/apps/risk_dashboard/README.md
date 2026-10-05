@@ -78,11 +78,16 @@ reason a freshly installed command is "not recognized" on Windows. It listens on
   chart. It reacts faster than a long window: on the *Regime shift* sample (1,000 periods, seed 7) the 250-period rolling VaR at
   95% is breached 63 times and the filtered one 41 times, against 37.5 expected. The table also says whether recent periods
   were calmer or more turbulent than the window as a whole.
-- **Benchmark**: in a portfolio loaded by symbol, a benchmark symbol (`XU100.IS`, `^GSPC`) adds beta, correlation,
-  R-squared, annualized alpha, active return, tracking error and the information ratio of the portfolio against it. Beta
+- **Benchmark**: a benchmark symbol (`XU100.IS`, `^GSPC`), for one symbol or for a portfolio loaded by symbol, adds beta, correlation,
+  R-squared, annualized alpha, active return, tracking error and the information ratio against it, the **up and down
+  capture ratios** (the average return over the periods the benchmark rose, and over those it fell, against the
+  benchmark's own: more than 100% on the way up and less on the way down is the way round to want; needs five such
+  periods) and a **rolling beta** chart (the beta over the analysis window, at each date, against the whole-history beta).
+  It also works with files: a dated CSV with a third column (`date,value,Index`) compares the series with that column, and a
+  portfolio CSV with a column headed `Benchmark` (or `Kıyas`) compares the portfolio with it, the column not being an asset. Beta
   is the covariance with the benchmark over its variance, over the periods both have; the benchmark is converted to the
-  same currency as the assets. The API takes `benchmark` (values of the same kind and on the same dates as the assets) and
-  `benchmark_name`. A named portfolio keeps its benchmark symbol.
+  same currency as the assets. The API takes `benchmark` (values of the same kind and on the same dates as the data, in `/api/analyze` and in
+  `/api/portfolio`) and `benchmark_name`. A named portfolio keeps its benchmark symbol.
 - **Turkish and English**: the page opens in the language of the browser and the button in the header switches it (the
   choice is remembered in the browser). Turkish writes numbers its own way: a decimal comma and the percent sign in front,
   `−%0,92`. Assumptions and the usual error messages that come from the server are translated by the page too; a message it
@@ -238,7 +243,7 @@ prices are not covered, both sources being used for daily closes.
 | `GET /api/config` | Limits, and whether a token is needed |
 | `GET /api/market/prices?symbols=a,b&start=&base=` | Closing prices by symbol from the configured provider (404 when none is configured); the answer can be sent as `prices` to `/api/analyze` or `/api/portfolio` |
 | `GET /api/scenarios`, `GET /api/sample?scenario=&n=&seed=` | The sample scenarios and their simulated returns |
-| `POST /api/analyze` | Body: `returns` or `prices`, optional `dates`, `scenarios` (a list of `{name, shocks}`, shocks by asset name as fractions, `series` for a single series; at most five), `confidence` (0.8 to 0.999), `method` (`historical`, `parametric`, `cornish_fisher`), `window`, `horizon` (1 to 60), `minimum_acceptable_return`, `periods_per_year`. At most 5,000 observations. |
+| `POST /api/analyze` | Body: `returns` or `prices`, optional `dates`, `benchmark` and `benchmark_name`, `scenarios` (a list of `{name, shocks}`, shocks by asset name as fractions, `series` for a single series; at most five), `confidence` (0.8 to 0.999), `method` (`historical`, `parametric`, `cornish_fisher`), `window`, `horizon` (1 to 60), `minimum_acceptable_return`, `periods_per_year`. At most 5,000 observations. |
 | `POST /api/portfolio` | Body: `assets` (name to values), `kind` (`returns` or `prices`), optional `weights` (name to weight, equal weights if omitted, scaled to sum to 1), optional `benchmark` and `benchmark_name`, and the same settings. Answers like `/api/analyze` plus a `portfolio` section (and `benchmark` when one was given). |
 | `GET /api/portfolios`, `POST /api/portfolios` | List the named portfolios; keep one, `{name, symbols, weights, base, years}` (2 to 10 symbols, weights for exactly those, `years` 1, 3, 5, 10 or null for all). A name that exists is replaced (`200`, else `201`); beyond the limit `409` |
 | `GET /api/portfolios/{id}`, `DELETE /api/portfolios/{id}` | The definition of one, or delete it |

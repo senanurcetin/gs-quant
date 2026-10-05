@@ -108,6 +108,8 @@ class AnalyzeRequest(_Settings):
     returns: Optional[list[float]] = Field(None, max_length=analysis.MAX_OBSERVATIONS)
     prices: Optional[list[float]] = Field(None, max_length=analysis.MAX_OBSERVATIONS + 1)
     dates: Optional[list[dt.date]] = Field(None, max_length=analysis.MAX_OBSERVATIONS + 1)
+    benchmark: Optional[list[float]] = Field(None, max_length=analysis.MAX_OBSERVATIONS + 1)
+    benchmark_name: str = Field('Benchmark', min_length=1, max_length=portfolio.MAX_NAME_LENGTH)
 
     @model_validator(mode='after')
     def _exactly_one_input(self):
@@ -241,6 +243,16 @@ def execute(kind: str, params: _Settings) -> dict:
             ewma_decay=params.ewma_decay,
             horizon_method=params.horizon_method,
         )
+        if params.benchmark is not None:
+            result['benchmark'] = analysis.compare_with_benchmark(
+                returns,
+                params.benchmark,
+                params.dates,
+                source,
+                params.benchmark_name,
+                result['settings']['periods_per_year'],
+                params.window,
+            )
         weights = {analysis.SERIES_KEY: 1.0}
     else:
         result = portfolio.analyze_portfolio(

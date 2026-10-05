@@ -139,7 +139,7 @@ def test_server_messages_are_matched_by_the_patterns():
         'horizon, which assumes independent returns and no drift',
         'At least 30 periods in common with the benchmark are needed',
         'The benchmark does not vary, so there is nothing to compare against',
-        'The benchmark needs the same number of observations as the assets',
+        'The benchmark needs the same number of observations as the data',
         'XU100.IS: Got 300 dates for 250 values',
         "The 10-period figures come from a filtered historical simulation: 10,000 paths from the current EWMA volatility (decay 0.94), drawing the history's standardised returns, with zero mean",
         'Prices of AAPL, USDTRY=X come from the copy saved on 2026-10-05 because Yahoo Finance could not be reached: they may be out of date',

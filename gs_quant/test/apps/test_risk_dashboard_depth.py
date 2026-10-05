@@ -462,3 +462,95 @@ class TestNewSettingsOverHttp:
         opened = client.get(f'/api/runs/{saved.json()["id"]}').json()['result']
 
         assert opened['settings']['ewma_decay'] == 0.9 and opened['horizon']['method'] == 'filtered_simulation'
+
+
+class TestCaptureAndRollingBeta:
+    def pair(self, up=2.0, down=0.5, n=120, seed=3):
+        rng = np.random.default_rng(seed)
+        b = rng.normal(0, 0.01, n)
+        r = np.where(b > 0, up * b, down * b)
+        return dated(r), dated(b), b, r
+
+    def test_capture_ratios_are_the_average_return_over_the_up_and_the_down_periods(self):
+        returns, benchmark, b, r = self.pair()
+
+        result = analysis.versus_benchmark(returns, benchmark, 'B', 252)
+
+        assert result['up_capture'] == pytest.approx(2.0, abs=1e-4)  # twice the benchmark whenever it rises
+        assert result['down_capture'] == pytest.approx(0.5, abs=1e-4)  # half of it whenever it falls
+        assert result['up_capture'] == pytest.approx(r[b > 0].mean() / b[b > 0].mean(), abs=1e-4)
+
+    def test_too_few_up_or_down_periods_give_no_ratio(self):
+        b = np.concatenate([np.full(3, 0.01), np.full(57, -0.01)])  # three rising periods
+        returns, benchmark = dated(b * 1.5), dated(b)
+
+        result = analysis.versus_benchmark(returns, benchmark, 'B', 252)
+
+        assert result['up_capture'] is None and result['down_capture'] == pytest.approx(1.5, abs=1e-4)
+
+    def test_rolling_beta_is_the_beta_over_the_last_window(self):
+        rng = np.random.default_rng(5)
+        b = rng.normal(0, 0.01, 150)
+        r = np.concatenate([1.0 * b[:75], 3.0 * b[75:]]) + rng.normal(0, 0.0005, 150)
+        returns, benchmark = dated(r), dated(b)
+
+        result = analysis.versus_benchmark(returns, benchmark, 'B', 252, window=50)
+
+        rolling = result['rolling_beta']
+        assert rolling['window'] == 50 and len(rolling['values']) == 150 and len(rolling['dates']) == 150
+        assert all(v is None for v in rolling['values'][:49]) and rolling['values'][49] is not None
+        for end in (49, 100, 149):  # against the textbook formula over the same window
+            w_r, w_b = r[end - 49 : end + 1], b[end - 49 : end + 1]
+            assert rolling['values'][end] == pytest.approx(np.cov(w_r, w_b)[0, 1] / np.var(w_b, ddof=1), abs=1e-3)
+        assert rolling['values'][74] == pytest.approx(1.0, abs=0.05) and rolling['values'][149] == pytest.approx(
+            3.0, abs=0.05
+        )
+
+    def test_a_window_as_long_as_the_data_gives_no_series(self):
+        returns, benchmark, *_ = self.pair(n=60)
+
+        assert analysis.versus_benchmark(returns, benchmark, 'B', 252, window=60)['rolling_beta'] is None
+        assert analysis.versus_benchmark(returns, benchmark, 'B', 252)['rolling_beta'] is None
+
+
+class TestSingleSeriesBenchmark:
+    def test_a_single_series_against_a_benchmark(self, client):
+        n = 300
+        returns = [round(float(v), 6) for v in analysis.simulate_returns('volatile', n, 2)]
+        benchmark = [round(float(v), 6) for v in analysis.simulate_returns('volatile', n, 2)]  # the same market
+
+        body = client.post(
+            '/api/analyze',
+            json={'returns': returns, 'benchmark': benchmark, 'benchmark_name': 'Same', 'window': 100},
+        )
+
+        assert body.status_code == 200
+        versus = body.json()['benchmark']
+        assert versus['name'] == 'Same' and versus['beta'] == pytest.approx(1.0, abs=1e-3)
+        assert versus['tracking_error'] == pytest.approx(0.0, abs=1e-6) and versus['rolling_beta']['window'] == 100
+
+    def test_prices_and_dates_work_like_they_do_for_the_data(self, client):
+        n = 200
+        rng = np.random.default_rng(1)
+        prices = list(100 * np.cumprod(1 + rng.normal(0, 0.01, n)))
+        index = list(100 * np.cumprod(1 + rng.normal(0, 0.01, n)))
+        dates = [str(d.date()) for d in pd.bdate_range('2024-01-01', periods=n)]
+
+        body = client.post(
+            '/api/analyze',
+            json={'prices': prices, 'dates': dates, 'benchmark': index, 'benchmark_name': 'IDX', 'window': 60},
+        )
+
+        assert body.status_code == 200 and body.json()['benchmark']['observations'] == n - 1
+
+    def test_a_benchmark_of_another_length_is_refused(self, client):
+        returns = [round(float(v), 6) for v in analysis.simulate_returns('volatile', 300, 2)]
+
+        response = client.post('/api/analyze', json={'returns': returns, 'benchmark': returns[:250]})
+
+        assert response.status_code == 422 and 'same number of observations' in response.json()['error']
+
+    def test_without_one_there_is_none(self, client):
+        returns = [round(float(v), 6) for v in analysis.simulate_returns('volatile', 300, 2)]
+
+        assert 'benchmark' not in client.post('/api/analyze', json={'returns': returns}).json()

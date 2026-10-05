@@ -419,7 +419,7 @@ def test_horizon_filtered_estimate_and_benchmark(server, browser):
     # the filtered estimate is always there, the benchmark only for a portfolio loaded with one
     assert page.locator('#table-ewma tbody tr').count() == 6
     assert page.locator('#headline > div').count() == 4
-    assert not page.is_visible('#benchmark-section') and not page.is_visible('#benchmark-row')
+    assert not page.is_visible('#benchmark-section') and page.is_visible('#benchmark-row')
     assert 'Filtered VaR (EWMA)' in page.inner_text('#chart-var')
 
     page.fill('#horizon', '10')
@@ -452,7 +452,8 @@ def test_horizon_filtered_estimate_and_benchmark(server, browser):
     page.wait_for_selector('#results:not(.loading)')
     assert page.locator('#table-assets tbody tr').count() == 3  # two assets and the portfolio: not the benchmark
     assert 'AAPL' in page.inner_text('#takeaway-benchmark')
-    assert page.locator('#table-benchmark tbody tr').count() == 8
+    assert page.locator('#table-benchmark tbody tr').count() == 10
+    assert 'Up capture' in page.inner_text('#table-benchmark') and page.locator('#chart-beta svg').count() == 1
     assert 'Beta' in page.inner_text('#table-benchmark') and 'Tracking error' in page.inner_text('#table-benchmark')
 
     # a benchmark is kept with a named portfolio and comes back with it
@@ -526,4 +527,57 @@ def test_the_static_export_works_in_a_browser(browser, tmp_path):
 
     page.click('#lang')
     page.locator('#glance-title').filter(has_text='Bir bakışta risk').wait_for()
+    assert problems == []
+
+
+def test_a_benchmark_for_a_single_series_and_in_csv_files(server, browser):
+    page = browser.new_context(locale='en-US').new_page()
+    problems = []
+    page.on('pageerror', lambda e: problems.append(str(e)))
+    page.on('console', lambda m: problems.append(m.text) if m.type in ('error', 'warning') else None)
+    page.goto(server)
+    page.wait_for_selector('#results:not([hidden])')
+    page.wait_for_selector('#results:not(.loading)')
+    assert not page.is_visible('#benchmark-section')  # the sample has no benchmark
+
+    # one symbol against another
+    page.fill('#symbols', 'THYAO.IS')
+    page.fill('#benchmark', 'aapl')
+    page.click('#market-load')
+    page.wait_for_selector('#benchmark-section:not([hidden])')
+    page.wait_for_selector('#results:not(.loading)')
+    assert 'AAPL' in page.inner_text('#takeaway-benchmark') and 'series' in page.inner_text('#takeaway-benchmark')
+    assert page.locator('#table-benchmark tbody tr').count() == 10 and page.locator('#chart-beta svg').count() == 1
+    assert 'THYAO.IS' in page.inner_text('#provenance')
+
+    rng = np.random.default_rng(0)
+    market = rng.normal(0.0003, 0.01, 150)
+    other = 1.2 * market + rng.normal(0, 0.003, 150)
+    third = 0.8 * market + rng.normal(0, 0.003, 150)
+    dates = [f'2024-{1 + i // 28:02d}-{1 + i % 28:02d}' for i in range(150)]
+
+    # a dated file with a third column: the value, then what it is compared with
+    single = 'date,value,Index\n' + '\n'.join(f'{d},{a:.6f},{b:.6f}' for d, a, b in zip(dates, other, market))
+    page.set_input_files('#file', {'name': 'one.csv', 'mimeType': 'text/csv', 'buffer': single.encode()})
+    page.wait_for_selector('#results:not(.loading)')
+    page.locator('#takeaway-benchmark').filter(has_text='Beta').wait_for()
+    assert 'Index' in page.inner_text('#takeaway-benchmark')
+    assert float(page.inner_text('#table-benchmark tbody tr').split()[-1]) == pytest.approx(1.2, abs=0.15)
+
+    # a portfolio file with a column headed Benchmark: it is not an asset
+    page.click('input[name=mode][value=portfolio]')
+    portfolio = 'date,A,B,Benchmark\n' + '\n'.join(
+        f'{d},{a:.6f},{b:.6f},{m:.6f}' for d, a, b, m in zip(dates, other, third, market)
+    )
+    page.set_input_files('#portfolio-file', {'name': 'two.csv', 'mimeType': 'text/csv', 'buffer': portfolio.encode()})
+    page.wait_for_selector('#portfolio-section:not([hidden])')
+    page.wait_for_selector('#results:not(.loading)')
+    assert page.locator('#table-assets tbody tr').count() == 3  # two assets and the portfolio
+    assert 'Benchmark' in page.inner_text('#takeaway-benchmark') and 'portfolio' in page.inner_text(
+        '#takeaway-benchmark'
+    )
+
+    page.click('#lang')
+    page.locator('#beta-title').filter(has_text='Kayan beta').wait_for()
+    assert 'portföy' in page.inner_text('#takeaway-benchmark')
     assert problems == []
