@@ -5,6 +5,8 @@ release are the section of that version below, and are published with it.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-05
+
 ### Changed
 - The image upgrades the operating system packages of its base image when it is built, which closes the `libpcre2` finding
   the vulnerability scan reported.
