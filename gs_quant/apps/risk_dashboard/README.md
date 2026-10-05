@@ -78,6 +78,13 @@ reason a freshly installed command is "not recognized" on Windows. It listens on
   the current model code. Each one can be downloaded as a **report**: one HTML file with its charts and numbers that opens
   without a server, offline. Tick two to four saved analyses to compare them side by side (for instance a portfolio before
   and after a change of weights).
+- **Excel and PDF**: a saved analysis can be downloaded as an Excel workbook (`GET /api/runs/{id}/xlsx`): a Summary
+  sheet (headline, horizon, filtered estimate, settings and notes), Backtest, Series (one row per period), Stress and,
+  where they apply, Portfolio, What-if and Benchmark. Figures are numbers with a percent or ratio format, not text, so they
+  can be used in formulas; text that starts with `=`, `+`, `-` or `@` (an asset or run name) is stored as text and never
+  becomes a formula. *Print or save as PDF* uses the browser's print dialog: the page has a print stylesheet (A4, light
+  colours whatever the screen theme, controls hidden, sections kept whole), and the offline HTML report prints the same way.
+  No server-side PDF library is used, so the image stays small. The workbook is in English whatever the page language.
 - **Charts**: growth and drawdown, daily returns against the VaR forecast with the breaches highlighted, the distribution
   with the normal fit and a QQ plot of the tails. Download the calculated series as CSV.
 
@@ -193,6 +200,7 @@ prices are not covered, both sources being used for daily closes.
 | `GET /api/runs`, `POST /api/runs` | List the saved analyses; save one: `{name, kind: "single" or "portfolio", request}`, where `request` is the body of the matching analysis endpoint. The request is analysed first, so only valid ones are stored. |
 | `GET /api/runs/compare?ids=a,b,c` | The headline figures of two to four saved analyses, recomputed, in the order asked for |
 | `GET /api/runs/{id}`, `DELETE /api/runs/{id}` | Open (recomputed) or delete a saved analysis |
+| `GET /api/runs/{id}/xlsx` | The saved run as an Excel workbook (recomputed, like the report) |
 | `GET /api/runs/{id}/report` | The stand-alone HTML report, as a download |
 
 Invalid input gets a `422` with a message that says what is wrong.

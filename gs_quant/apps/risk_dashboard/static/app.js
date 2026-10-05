@@ -134,6 +134,9 @@
     async reportBlob(id) {
       return (await request(`/api/runs/${id}/report`)).blob();
     },
+    async xlsxBlob(id) {
+      return (await request(`/api/runs/${id}/xlsx`)).blob();
+    },
   };
   const api = window.RiskApi || liveApi;
 
@@ -1305,8 +1308,10 @@
   }
 
   function updateSaveControls() {
-    const report = $('#report'); // not part of the static export
-    if (report) report.hidden = !state.savedRun;
+    for (const id of ['#report', '#xlsx']) {
+      const button = $(id); // not part of the static export
+      if (button) button.hidden = !state.savedRun;
+    }
     renderHistory();
   }
 
@@ -1617,6 +1622,7 @@
       const buttons = element('div', { className: 'buttons' }, [
         element('button', { className: 'button', text: t('Open'), attributes: { type: 'button', 'data-action': 'open', 'aria-label': t('Open {name}', { name: item.name }) } }),
         element('button', { className: 'button', text: t('Report'), attributes: { type: 'button', 'data-action': 'report', 'aria-label': t('Download the report of {name}', { name: item.name }) } }),
+        element('button', { className: 'button', text: t('Excel'), attributes: { type: 'button', 'data-action': 'xlsx', 'aria-label': t('Download the Excel workbook of {name}', { name: item.name }) } }),
         element('button', { className: 'button danger', text: t('Delete'), attributes: { type: 'button', 'data-action': 'delete', 'aria-label': t('Delete {name}', { name: item.name }) } }),
       ]);
       const row = element('li', { className: current ? 'current' : '', attributes: { 'data-id': item.id } }, [
@@ -1760,6 +1766,14 @@
     }
   }
 
+  async function downloadXlsx(id) {
+    try {
+      saveBlob(await api.xlsxBlob(id), `risk_${id.slice(0, 8)}.xlsx`);
+    } catch (error) {
+      fail(error);
+    }
+  }
+
   async function removeRun(id) {
     const item = state.runs.find((r) => r.id === id);
     if (!item || !window.confirm(t('Delete “{name}”?', { name: item.name }))) return;
@@ -1855,6 +1869,7 @@
       $('#file').closest('.field').hidden = true;
       $('#mode-field').hidden = true;
       $('#report').remove();
+      $('#xlsx').remove();
       $('#save-form').remove();
     }
     if (api.confidences) {
@@ -1893,6 +1908,7 @@
     $('#window').addEventListener('change', () => scheduleRun(0));
     $('#horizon').addEventListener('change', () => scheduleRun(0));
     $('#download').addEventListener('click', download);
+    $('#print').addEventListener('click', () => window.print());
     document.querySelectorAll('input[name="kind"]').forEach((radio) =>
       radio.addEventListener('change', () => {
         if (state.dataset && state.dataset.id === 'upload' && $('#file').files.length) $('#file').dispatchEvent(new Event('change'));
@@ -1959,6 +1975,7 @@
     // saved runs
     $('#save-form').addEventListener('submit', saveRun);
     $('#report').addEventListener('click', () => state.savedRun && downloadReport(state.savedRun.id));
+    $('#xlsx').addEventListener('click', () => state.savedRun && downloadXlsx(state.savedRun.id));
     $('#whatif-add').addEventListener('click', addScenario);
     $('#table-whatif').addEventListener('change', () => {
       if (!state.dataset) return;
@@ -1996,6 +2013,7 @@
       const id = button.closest('li').dataset.id;
       if (button.dataset.action === 'open') openRun(id);
       else if (button.dataset.action === 'report') downloadReport(id);
+      else if (button.dataset.action === 'xlsx') downloadXlsx(id);
       else removeRun(id);
     });
 
