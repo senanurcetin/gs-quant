@@ -160,14 +160,7 @@ def analyze_portfolio(
     result['stress'] = analysis.stress(portfolio, frame)
     result['portfolio'] = _decompose(frame, w, portfolio, confidence, result['settings']['periods_per_year'])
     if benchmark is not None:
-        try:
-            returns, notes = analysis.build_series(benchmark, dates, kind)
-        except AnalysisError as e:
-            raise AnalysisError(f'{benchmark_name}: {e}') from e
-        if len(returns) != len(portfolio):
-            raise AnalysisError('The benchmark needs the same number of observations as the assets')
-        returns.index = portfolio.index
-        result['benchmark'] = analysis.versus_benchmark(
-            portfolio, returns, benchmark_name, result['settings']['periods_per_year']
+        result['benchmark'] = analysis.compare_with_benchmark(
+            portfolio, benchmark, dates, kind, benchmark_name, result['settings']['periods_per_year'], window
         )
     return result

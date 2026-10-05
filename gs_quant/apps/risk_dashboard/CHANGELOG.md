@@ -14,6 +14,8 @@ release are the section of that version below, and are published with it.
   form that the export removes. It now works, and a browser test opens it.
 
 ### Added
+- Benchmark for a single series and in CSV files (a third column, or a column headed Benchmark), up and down capture
+  ratios, and a rolling beta chart.
 - Horizon method: filtered historical simulation as an alternative to the square-root rule, a multi-period check of the
   square-root figures over non-overlapping stretches, and a setting for the EWMA decay.
 - Saved copies of prices: if the market data provider cannot be reached, the latest prices fetched are used, and the notes of

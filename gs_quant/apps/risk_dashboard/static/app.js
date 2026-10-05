@@ -90,12 +90,12 @@
       body.assets = dataset.assets;
       body.kind = dataset.kind;
       if (dataset.weights) body.weights = dataset.weights;
-      if (dataset.benchmark) {
-        body.benchmark = dataset.benchmark.values;
-        body.benchmark_name = dataset.benchmark.name;
-      }
     } else {
       body[dataset.kind] = dataset.values;
+    }
+    if (dataset.benchmark) {
+      body.benchmark = dataset.benchmark.values;
+      body.benchmark_name = dataset.benchmark.name;
     }
     if (dataset.dates) body.dates = dataset.dates;
     if (dataset.scenarios && dataset.scenarios.length) body.scenarios = dataset.scenarios.map(({ name, shocks }) => ({ name, shocks }));
@@ -752,20 +752,56 @@
     const b = result.benchmark;
     $('#benchmark-section').hidden = !b;
     if (!b) return;
+    const subject = result.portfolio ? t('portfolio') : t('series');
     const direction = b.beta >= 0 ? t('in the same direction') : t('in the opposite direction');
-    let text = t('Beta **{beta}** against {name}: for each 1% the benchmark has moved, the portfolio has moved {move}% on average, {direction}. The benchmark explains {share} of the variance of the portfolio.', { beta: num(b.beta, 2), name: b.name, move: num(Math.abs(b.beta), 2), direction, share: pct(b.r_squared, 0) });
+    let text = t('Beta **{beta}** against {name}: for each 1% the benchmark has moved, the {subject} has moved {move}% on average, {direction}. The benchmark explains {share} of the variance of the {subject}.', { beta: num(b.beta, 2), name: b.name, move: num(Math.abs(b.beta), 2), direction, share: pct(b.r_squared, 0), subject });
     text += ' ' + t('Tracking error is {te} a year, and the information ratio is {ir}.', { te: pct(b.tracking_error, 1), ir: num(b.information_ratio, 2) });
+    if (isNumber(b.up_capture) && isNumber(b.down_capture)) {
+      text += ' ' + t('It has captured {up} of the benchmark’s rises and {down} of its falls.', { up: pct(b.up_capture, 0), down: pct(b.down_capture, 0) });
+    }
     setTakeaway('#takeaway-benchmark', text);
     fillMeasures($('#table-benchmark'), [
       [t('Beta'), t('sensitivity to the benchmark: covariance divided by its variance'), num(b.beta, 2)],
       [t('Correlation'), t('{n} periods in common', { n: integer(b.observations) }), num(b.correlation, 2)],
       [t('R-squared'), t('share of variance explained by the benchmark'), pct(b.r_squared, 1)],
       [t('Alpha'), t('annualized return not explained by beta'), pct(b.alpha, 2)],
-      [t('Active return'), t('annualized, portfolio minus benchmark'), pct(b.active_return, 2)],
+      [t('Active return'), t('annualized, minus the benchmark'), pct(b.active_return, 2)],
       [t('Tracking error'), t('annualized volatility of the active return'), pct(b.tracking_error, 2)],
       [t('Information ratio'), t('active return per unit of tracking error'), num(b.information_ratio, 2)],
-      [t('Volatility'), t('annualized: portfolio, then {name}', { name: b.name }), `${pct(b.volatility, 1)} · ${pct(b.benchmark_volatility, 1)}`],
+      [t('Up capture'), t('average return over the periods the benchmark rose, against its own'), pct(b.up_capture, 0)],
+      [t('Down capture'), t('average return over the periods the benchmark fell, against its own'), pct(b.down_capture, 0)],
+      [t('Volatility'), t('annualized: the analysed series, then {name}', { name: b.name }), `${pct(b.volatility, 1)} · ${pct(b.benchmark_volatility, 1)}`],
     ]);
+    const chart = $('#chart-beta');
+    chart.closest('div.beta-chart').hidden = !b.rolling_beta;
+    if (b.rolling_beta) drawRollingBeta(chart, b);
+  }
+
+  function drawRollingBeta(container, b) {
+    const { dates, values, window: size } = b.rolling_beta;
+    const n = dates.length;
+    const label = t('Beta against {name} over the last {window} periods: now {now}, over the whole history {all}.', { name: b.name, window: size, now: num(values[n - 1], 2), all: num(b.beta, 2) });
+    registerChart(container, (width) => {
+      const left = width < 520 ? 44 : 56;
+      const right = width - 12;
+      const legendItems = [{ label: t('Beta over {window} periods', { window: size }) }, { label: t('Whole history'), className: 'second dashed' }];
+      const top = plotTop(legendLayout(legendItems, left, right).rows);
+      const bottom = top + 150;
+      const svg = makeSvg(width, bottom + 40, label);
+      const x = linearScale(0, Math.max(n - 1, 1), left, right);
+      const [lo, hi] = extent([values, [b.beta, 1]]);
+      const scale = niceTicks(lo, hi, 5);
+      const y = linearScale(scale.min, scale.max, bottom, top);
+      gridAndYAxis(svg, { left, right, top, bottom, y, ticks: scale.ticks, format: (v) => num(v, 1) });
+      svg.appendChild(svgEl('line', { x1: left, x2: right, y1: y(1).toFixed(1), y2: y(1).toFixed(1), class: 'line ref' }));
+      svg.appendChild(svgEl('line', { x1: left, x2: right, y1: y(b.beta).toFixed(1), y2: y(b.beta).toFixed(1), class: 'line second dashed' }));
+      svg.appendChild(svgEl('path', { d: linePath(values, x, y), class: 'line' }));
+      dateAxis(svg, { labels: dates, x, left, right, y: bottom });
+      axisTitle(svg, t('Beta'), { x: 12, y: (top + bottom) / 2, rotate: true });
+      legend(svg, legendItems, left, 14, right);
+      container.appendChild(svg);
+      attachCrosshair({ container, svg, count: n, left, right, top, bottom, x, describe: (i) => [[dates[i]], [t('Beta'), num(values[i], 2)]] });
+    });
   }
 
   // ------------------------------------------------------------------------------------------------------------------
@@ -1164,23 +1200,32 @@
     const delimiter = [',', ';', '\t'].find((d) => lines[0].includes(d)) || ',';
     let rows = lines.map((line) => line.split(delimiter).map((cell) => cell.trim().replace(/^"|"$/g, '')));
     const last = rows[0].length - 1;
-    if (Number.isNaN(parseNumber(rows[0][Math.min(1, last)]))) rows = rows.slice(1); // header
+    let header = null;
+    if (Number.isNaN(parseNumber(rows[0][Math.min(1, last)]))) header = rows.shift(); // header
     if (!rows.length) throw new Error(t('The file has no data rows.'));
     if (rows.length > MAX_ROWS) throw new Error(t('The file has {n} rows, the maximum is {max}.', { n: rows.length, max: MAX_ROWS }));
 
     const dated = rows[0].length > 1;
+    const withBenchmark = dated && rows[0].length === 3; // date, value, benchmark
     const values = [];
+    const benchmark = [];
     const dates = [];
     rows.forEach((row, i) => {
       const value = parseNumber(dated ? row[1] : row[0]);
       if (!Number.isFinite(value)) throw new Error(t('Row {row} does not contain a number.', { row: i + 1 }));
       values.push(value);
+      if (withBenchmark) {
+        const other = parseNumber(row[2]);
+        if (!Number.isFinite(other)) throw new Error(t('Row {row}: the benchmark is not a number.', { row: i + 1 }));
+        benchmark.push(other);
+      }
       if (dated) {
         if (!/^\d{4}-\d{2}-\d{2}/.test(row[0])) throw new Error(t('Row {row}: the first column must be a date such as 2024-03-29.', { row: i + 1 }));
         dates.push(row[0].slice(0, 10));
       }
     });
-    return { id: 'upload', simulated: false, kind, values, dates: dated ? dates : null };
+    const name = header && header[2] ? header[2] : t('Benchmark');
+    return { id: 'upload', simulated: false, kind, values, dates: dated ? dates : null, benchmark: withBenchmark ? { name, values: benchmark } : null };
   }
 
   const DATE_CELL = /^\d{4}-\d{2}-\d{2}/;
@@ -1200,15 +1245,19 @@
     const dated = DATE_CELL.test(rows[0][0]);
     const first = dated ? 1 : 0;
     const count = rows[0].length - first;
-    if (count < 2) throw new Error(t('A portfolio needs at least two asset columns.'));
-    if (count > maxAssets) throw new Error(t('The file has {n} assets, the maximum is {max}.', { n: count, max: maxAssets }));
-    const names = [];
+    const columns = [];
     for (let j = 0; j < count; j++) {
       const name = header && header[first + j] ? header[first + j] : t('Asset {n}', { n: j + 1 });
-      if (names.includes(name)) throw new Error(t('The asset name "{name}" appears twice.', { name }));
-      names.push(name);
+      if (columns.includes(name)) throw new Error(t('The asset name "{name}" appears twice.', { name }));
+      columns.push(name);
     }
+    // a column headed "benchmark" is what the portfolio is compared with, not an asset
+    const benchmarkColumn = columns.findIndex((name) => /^(benchmark|kıyas)$/i.test(name));
+    const names = columns.filter((name, j) => j !== benchmarkColumn);
+    if (names.length < 2) throw new Error(t('A portfolio needs at least two asset columns.'));
+    if (names.length > maxAssets) throw new Error(t('The file has {n} assets, the maximum is {max}.', { n: names.length, max: maxAssets }));
     const assets = Object.fromEntries(names.map((n) => [n, []]));
+    const benchmark = [];
     const dates = [];
     rows.forEach((row, i) => {
       if (row.length !== count + first) throw new Error(t('Row {row} has {n} columns, expected {expected}.', { row: i + 1, n: row.length, expected: count + first }));
@@ -1216,13 +1265,17 @@
         if (!DATE_CELL.test(row[0])) throw new Error(t('Row {row}: the first column must be a date such as 2024-03-29.', { row: i + 1 }));
         dates.push(row[0].slice(0, 10));
       }
-      names.forEach((name, j) => {
+      columns.forEach((name, j) => {
         const value = parseNumber(row[first + j]);
         if (!Number.isFinite(value)) throw new Error(t('Row {row}, {name}: not a number.', { row: i + 1, name }));
-        assets[name].push(value);
+        if (j === benchmarkColumn) benchmark.push(value);
+        else assets[name].push(value);
       });
     });
-    return { id: 'portfolio', portfolio: true, simulated: false, kind, assets, dates: dated ? dates : null, weights: equalWeights(names) };
+    return {
+      id: 'portfolio', portfolio: true, simulated: false, kind, assets, dates: dated ? dates : null, weights: equalWeights(names),
+      benchmark: benchmarkColumn >= 0 ? { name: columns[benchmarkColumn], values: benchmark } : null,
+    };
   }
 
   const equalWeights = (names) => Object.fromEntries(names.map((n) => [n, 1 / names.length]));
@@ -1466,7 +1519,6 @@
     field.hidden = !state.marketSource;
     if (!state.marketSource) return;
     const portfolio = state.mode === 'portfolio';
-    $('#benchmark-row').hidden = !portfolio;
     $('#symbols-label').textContent = portfolio ? t('Load several symbols') : t('Load by symbol');
     $('#symbols').placeholder = portfolio ? 'THYAO.IS, GARAN.IS, ASELS.IS' : 'THYAO.IS';
     const adjusted = state.marketSource === 'Yahoo Finance';
@@ -1487,7 +1539,7 @@
       setStatus(portfolio ? t('Give at least two symbols, separated by commas.') : t('Give one symbol, or switch to a portfolio for several.'), true);
       return;
     }
-    const benchmark = portfolio ? $('#benchmark').value.trim().toUpperCase() : '';
+    const benchmark = $('#benchmark').value.trim().toUpperCase();
     const years = $('#market-history').value;
     let start = null;
     if (years !== 'all') {
@@ -1513,8 +1565,11 @@
         });
         renderWeights();
       } else {
-        const symbol = data.symbols[0];
-        setDataset({ id: 'upload', simulated: false, market: data.source, title: `${symbol}${inBase}`, notes: data.notes, kind: 'prices', values: data.prices[symbol], dates: data.dates });
+        const symbol = upper[0];
+        setDataset({
+          id: 'upload', simulated: false, market: data.source, title: `${symbol}${inBase}`, notes: data.notes, kind: 'prices', values: data.prices[symbol], dates: data.dates,
+          benchmark: benchmark ? { name: benchmark, values: data.prices[benchmark] } : null,
+        });
         $('#file').value = '';
       }
       await run();
@@ -1730,7 +1785,10 @@
       };
     }
     const kind = request.prices ? 'prices' : 'returns';
-    return { id: 'upload', simulated: false, title: run.name, kind, values: request[kind], dates: request.dates || null, scenarios: request.scenarios || [] };
+    return {
+      id: 'upload', simulated: false, title: run.name, kind, values: request[kind], dates: request.dates || null, scenarios: request.scenarios || [],
+      benchmark: request.benchmark ? { name: request.benchmark_name || 'Benchmark', values: request.benchmark } : null,
+    };
   }
 
   async function openRun(id) {

@@ -291,8 +291,26 @@ def horizon_backtest(returns: pd.Series, var: pd.Series, horizon: int, confidenc
     }
 
 
-def versus_benchmark(returns: pd.Series, benchmark: pd.Series, name: str, periods: float) -> dict:
-    """How the series moves against a benchmark over the periods both have: beta, tracking error and the rest"""
+MIN_CAPTURE_PERIODS = 5  # fewer rising (or falling) benchmark periods than this say nothing about a capture ratio
+
+
+def _capture(r: pd.Series, b: pd.Series, mask: pd.Series) -> Optional[float]:
+    """The average return of the series over the periods picked by the mask, per unit of the benchmark's average"""
+    if int(mask.sum()) < MIN_CAPTURE_PERIODS:
+        return None
+    benchmark_mean = float(b[mask].mean())
+    return clean(float(r[mask].mean()) / benchmark_mean, 4) if benchmark_mean else None
+
+
+def versus_benchmark(
+    returns: pd.Series, benchmark: pd.Series, name: str, periods: float, window: Optional[int] = None
+) -> dict:
+    """How the series moves against a benchmark over the periods both have: beta, tracking error and the rest
+
+    The up (down) capture ratio is the average return of the series over the periods when the benchmark rose (fell),
+    divided by the benchmark's average over those periods: above 1 in rising periods and below 1 in falling ones is the
+    way round to want. The rolling beta is the beta over the last ``window`` periods at each date.
+    """
     joined = pd.concat([returns.rename('r'), benchmark.rename('b')], axis=1, join='inner').dropna()
     if len(joined) < MIN_BENCHMARK_OBSERVATIONS:
         raise AnalysisError(f'At least {MIN_BENCHMARK_OBSERVATIONS} periods in common with the benchmark are needed')
@@ -305,6 +323,14 @@ def versus_benchmark(returns: pd.Series, benchmark: pd.Series, name: str, period
     active = r - b
     te = tracking_error(r, b, annualization_factor=int(periods)).dropna()
     ir = information_ratio(r, b, annualization_factor=int(periods)).dropna()
+    rolling = None
+    if window is not None and 2 <= window < len(joined):
+        moving = r.rolling(window).cov(b) / b.rolling(window).var()
+        rolling = {
+            'window': window,
+            'dates': [str(i.date()) if isinstance(i, pd.Timestamp) else str(i) for i in joined.index],
+            'values': clean_list(moving, 4),
+        }
     return {
         'name': name,
         'observations': len(joined),
@@ -317,7 +343,30 @@ def versus_benchmark(returns: pd.Series, benchmark: pd.Series, name: str, period
         'information_ratio': clean(float(ir.iloc[-1]), 4) if len(ir) else None,
         'benchmark_volatility': clean(float(b.std(ddof=1)) * math.sqrt(periods)),
         'volatility': clean(float(r.std(ddof=1)) * math.sqrt(periods)),
+        'up_capture': _capture(r, b, b > 0),
+        'down_capture': _capture(r, b, b < 0),
+        'rolling_beta': rolling,
     }
+
+
+def compare_with_benchmark(
+    returns: pd.Series,
+    values: list[float],
+    dates: Optional[list[dt.date]],
+    kind: str,
+    name: str,
+    periods: float,
+    window: Optional[int] = None,
+) -> dict:
+    """The benchmark, given like the data it is compared with (same kind, same dates), against the series of returns"""
+    try:
+        benchmark, _ = build_series(values, dates, kind)
+    except AnalysisError as e:
+        raise AnalysisError(f'{name}: {e}') from e
+    if len(benchmark) != len(returns):
+        raise AnalysisError('The benchmark needs the same number of observations as the data')
+    benchmark.index = returns.index
+    return versus_benchmark(returns, benchmark, name, periods, window)
 
 
 def _histogram(returns: pd.Series) -> dict:

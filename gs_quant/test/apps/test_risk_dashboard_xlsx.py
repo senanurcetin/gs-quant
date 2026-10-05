@@ -138,6 +138,12 @@ class TestWorkbook:
         benchmark = {row[0]: row[1] for row in rows_of(book['Benchmark']) if row[0]}
         assert benchmark['Beta'] == pytest.approx(result['benchmark']['beta'])
         assert benchmark['Tracking error (annualized)'] == pytest.approx(result['benchmark']['tracking_error'])
+        assert benchmark['Up capture'] == pytest.approx(result['benchmark']['up_capture'])
+        rolling = result['benchmark']['rolling_beta']
+        rows = rows_of(book['Benchmark'])
+        start = next(i for i, row in enumerate(rows) if row[0] and str(row[0]).startswith('Beta over the last'))
+        assert rows[start + 1][:2] == ['Date', 'Beta'] and len(rows) - start - 2 == len(rolling['dates'])
+        assert rows[-1][1] == pytest.approx(rolling['values'][-1])
         weights = [row[1] for row in rows_of(book['Portfolio'])[1:3]]
         assert weights == pytest.approx([0.5, 0.5])
 

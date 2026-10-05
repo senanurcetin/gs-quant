@@ -261,10 +261,22 @@ def _benchmark(sheet: Worksheet, result: dict) -> None:
         ['Active return (annualized)', b['active_return'], PERCENT],
         ['Tracking error (annualized)', b['tracking_error'], PERCENT],
         ['Information ratio', b['information_ratio'], RATIO],
-        ['Volatility, portfolio (annualized)', b['volatility'], PERCENT],
+        ['Up capture', b['up_capture'], PERCENT],
+        ['Down capture', b['down_capture'], PERCENT],
+        ['Volatility, analysed series (annualized)', b['volatility'], PERCENT],
         ['Volatility, benchmark (annualized)', b['benchmark_volatility'], PERCENT],
     ]
-    _pairs(sheet, 1, ['Measure', 'Value'], rows)
+    row = _pairs(sheet, 1, ['Measure', 'Value'], rows)
+    rolling = b.get('rolling_beta')
+    if rolling:
+        _put(sheet, row, 1, f'Beta over the last {rolling["window"]} periods', bold=True)
+        _table(
+            sheet,
+            row + 1,
+            ['Date', 'Beta'],
+            [list(pair) for pair in zip(rolling['dates'], rolling['values'])],
+            [None, RATIO],
+        )
     _widths(sheet, [36, 18])
 
 
