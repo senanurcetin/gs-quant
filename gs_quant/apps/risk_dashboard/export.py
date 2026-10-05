@@ -52,7 +52,7 @@ def build_payload(
                 if shared is None:
                     shared = {
                         **{k: result['series'][k] for k in SHARED_KEYS},
-                        **{k: result[k] for k in ('histogram', 'qq', 'worst_drawdown', 'conventions')},
+                        **{k: result[k] for k in ('histogram', 'qq', 'worst_drawdown', 'stress', 'conventions')},
                     }
                 variants[f'{confidence}|{method.value}'] = {
                     'summary': result['summary'],

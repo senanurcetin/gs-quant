@@ -143,6 +143,14 @@
         </div>
       </section>
 
+      <section class="panel" id="stress-section" aria-labelledby="stress-title" hidden>
+        <h2 id="stress-title">Stress: the worst stretches in the data</h2>
+        <p class="takeaway" id="takeaway-stress"></p>
+        <div class="table-scroll" role="region" aria-label="Worst windows" tabindex="0">
+          <table class="assets" id="table-stress"></table>
+        </div>
+      </section>
+
       <section class="panel" aria-labelledby="backtest-title">
         <h2 id="backtest-title">Model validation</h2>
         <p id="verdict" class="verdict"></p>
@@ -194,6 +202,8 @@
           <dd>Kupiec and independence combined.</dd>
           <dt>Basel traffic light</dt>
           <dd>Green, yellow or red from the binomial probability of seeing this many breaches or fewer if the model were right (95% and 99.99% cut-offs).</dd>
+          <dt>Stress window</dt>
+          <dd>The worst compounded return over any 1, 5 or 20 consecutive periods in the data, with its dates. It is what actually happened, not a forecast.</dd>
           <dt>Share of volatility</dt>
           <dd>Each asset's weight times its covariance with the portfolio, as a fraction of the portfolio variance. The shares add up to 100%.</dd>
           <dt>Share of expected shortfall</dt>

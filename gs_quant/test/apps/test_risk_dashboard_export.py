@@ -45,7 +45,16 @@ class TestPayload:
     def test_settings_independent_series_are_stored_once_per_scenario(self, payload):
         entry = payload['data']['calm']
 
-        assert set(entry['shared']) >= {'dates', 'returns', 'growth', 'drawdown', 'histogram', 'qq', 'worst_drawdown'}
+        assert set(entry['shared']) >= {
+            'dates',
+            'returns',
+            'growth',
+            'drawdown',
+            'histogram',
+            'qq',
+            'worst_drawdown',
+            'stress',
+        }
         for variant in entry['variants'].values():
             assert not {'dates', 'returns', 'growth', 'drawdown'} & set(variant)
             assert {'var', 'expected_shortfall', 'breach', 'summary', 'backtest'} <= set(variant)
