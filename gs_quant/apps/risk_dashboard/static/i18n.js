@@ -282,6 +282,16 @@
     "Remove {name}": "{name} senaryosunu kaldır",
     "Scenario {n}": "Senaryo {n}",
     "At most five scenarios.": "En fazla beş senaryo olabilir.",
+    "My portfolios": "Portföylerim",
+    "Name for this portfolio": "Bu portföyün adı",
+    "Name this portfolio": "Bu portföye ad ver",
+    "Save portfolio": "Portföyü kaydet",
+    "No portfolios yet.": "Henüz portföy yok.",
+    "Saves the symbols, the weights, the currency and the history. Opening one loads fresh prices.": "Sembolleri, ağırlıkları, para birimini ve geçmişi kaydeder. Bir portföyü açınca güncel fiyatlar yüklenir.",
+    "Load prices by symbol above, set the weights, and the portfolio can be saved here.": "Yukarıdan sembolle fiyat yükle, ağırlıkları ayarla; portföy burada kaydedilebilir.",
+    "Load {name}": "{name} portföyünü yükle",
+    "Portfolio “{name}” saved.": "“{name}” portföyü kaydedildi.",
+    "Convert to {currency}": "{currency}’ye çevir",
     "Green": "Yeşil",
     "Yellow": "Sarı",
     "Red": "Kırmızı",
@@ -430,6 +440,14 @@
     [
       "^Scenario \\\"(.*)\\\": unknown asset \\\"(.*)\\\"$",
       "“$1” senaryosunda bilinmeyen varlık: “$2”"
+    ],
+    [
+      "^You can keep at most (\\d+) portfolios: delete one first$",
+      "En fazla $1 portföy saklayabilirsin: önce birini sil"
+    ],
+    [
+      "^There is no such portfolio$",
+      "Böyle bir portföy yok"
     ],
     [
       "^(Stooq|Yahoo Finance) does not know this symbol$",

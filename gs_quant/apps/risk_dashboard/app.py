@@ -17,6 +17,7 @@ under the License.
 import datetime as dt
 import hmac
 import logging
+import math
 import re
 import time
 import uuid
@@ -35,7 +36,7 @@ from gs_quant.timeseries.risk_metrics import VaRMethod
 
 from . import analysis, marketdata, portfolio, report
 from .settings import Settings
-from .store import RunStore
+from .store import RunStore, StoreFull
 
 logger = logging.getLogger('gs_quant.apps.risk_dashboard')
 
@@ -148,6 +149,64 @@ class RunRequest(BaseModel):
 
 REQUEST_MODELS = {'single': AnalyzeRequest, 'portfolio': PortfolioRequest}
 
+HISTORY_YEARS = (1, 3, 5, 10)  # what the page offers besides "all"
+
+
+class PortfolioBookRequest(BaseModel):
+    """A portfolio to keep under a name: which symbols, at which weights, in which currency, over how much history"""
+
+    model_config = ConfigDict(extra='forbid')
+
+    name: str = Field(..., min_length=1, max_length=MAX_NAME_LENGTH)
+    symbols: list[str] = Field(..., min_length=2, max_length=marketdata.MAX_SYMBOLS)
+    weights: dict[str, float] = Field(..., max_length=marketdata.MAX_SYMBOLS)
+    base: Optional[str] = None
+    years: Optional[int] = None
+
+    @field_validator('name')
+    @classmethod
+    def _printable(cls, name: str) -> str:
+        name = name.strip()
+        if not name or not name.isprintable():
+            raise ValueError('The name must be printable text')
+        return name
+
+    @field_validator('symbols')
+    @classmethod
+    def _valid_symbols(cls, symbols: list[str]) -> list[str]:
+        cleaned = [s.strip().upper() for s in symbols]
+        for symbol in cleaned:
+            if not marketdata.SYMBOL.match(symbol):
+                raise ValueError(f'"{symbol[:20]}" is not a valid symbol')
+        if len(set(cleaned)) != len(cleaned):
+            raise ValueError('Each symbol can be given once')
+        return cleaned
+
+    @field_validator('base')
+    @classmethod
+    def _currency(cls, base: Optional[str]) -> Optional[str]:
+        try:
+            return marketdata.parse_currency(base)
+        except marketdata.MarketDataError as e:
+            raise ValueError(str(e)) from e
+
+    @field_validator('years')
+    @classmethod
+    def _history(cls, years: Optional[int]) -> Optional[int]:
+        if years is not None and years not in HISTORY_YEARS:
+            raise ValueError(f'The history must be one of {", ".join(map(str, HISTORY_YEARS))} years, or all of it')
+        return years
+
+    @model_validator(mode='after')
+    def _weights_match_the_symbols(self):
+        weights = {k.strip().upper(): v for k, v in self.weights.items()}
+        if set(weights) != set(self.symbols) or len(weights) != len(self.weights):
+            raise ValueError('Weights must be given for exactly the symbols, no more and no fewer')
+        if not all(math.isfinite(v) for v in weights.values()) or sum(weights.values()) <= 0:
+            raise ValueError('Weights must be finite and add up to a positive number')
+        self.weights = weights
+        return self
+
 
 def execute(kind: str, params: _Settings) -> dict:
     """Run the analysis for a validated request"""
@@ -226,7 +285,7 @@ class Application:
     def store(self) -> RunStore:
         # opened on first use, so that an app that never saves a run creates no file
         if self._store is None:
-            self._store = RunStore(self.settings.database, self.settings.max_runs)
+            self._store = RunStore(self.settings.database, self.settings.max_runs, self.settings.max_portfolios)
         return self._store
 
     async def _json(self, request: Request, model: type[BaseModel]):
@@ -392,6 +451,38 @@ class Application:
             compared.append({**meta, 'metrics': analysis.comparison_metrics(result)})
         return JSONResponse({'runs': compared})
 
+    # ---- named portfolios
+
+    async def list_portfolios(self, request: Request) -> Response:
+        return JSONResponse(await run_in_threadpool(self.store.list_portfolios))
+
+    async def save_portfolio(self, request: Request) -> Response:
+        body = await self._json(request, PortfolioBookRequest)
+        if isinstance(body, Response):
+            return body
+        definition = {
+            'symbols': body.symbols,
+            'weights': {s: body.weights[s] for s in body.symbols},
+            'base': body.base,
+            'years': body.years,
+        }
+        try:
+            meta, created = await run_in_threadpool(self.store.save_portfolio, body.name, definition)
+        except StoreFull as e:
+            return _error(409, str(e))
+        logger.info('%s portfolio %s', 'Saved' if created else 'Updated', meta['id'])
+        return JSONResponse(meta, status_code=201 if created else 200)
+
+    async def get_portfolio(self, request: Request) -> Response:
+        portfolio_id = request.path_params['portfolio_id']
+        found = await run_in_threadpool(self.store.get_portfolio, portfolio_id) if RUN_ID.match(portfolio_id) else None
+        return JSONResponse(found) if found is not None else _error(404, 'There is no such portfolio')
+
+    async def delete_portfolio(self, request: Request) -> Response:
+        portfolio_id = request.path_params['portfolio_id']
+        deleted = RUN_ID.match(portfolio_id) and await run_in_threadpool(self.store.delete_portfolio, portfolio_id)
+        return Response(status_code=204) if deleted else _error(404, 'There is no such portfolio')
+
     async def delete_run(self, request: Request) -> Response:
         run_id = request.path_params['run_id']
         deleted = RUN_ID.match(run_id) and await run_in_threadpool(self.store.delete, run_id)
@@ -503,6 +594,10 @@ def create_app(settings: Optional[Settings] = None) -> Starlette:
         Route('/api/market/prices', handlers.market_prices),
         Route('/api/analyze', handlers.analyze, methods=['POST']),
         Route('/api/portfolio', handlers.analyze_portfolio, methods=['POST']),
+        Route('/api/portfolios', handlers.list_portfolios, methods=['GET']),
+        Route('/api/portfolios', handlers.save_portfolio, methods=['POST']),
+        Route('/api/portfolios/{portfolio_id}', handlers.get_portfolio, methods=['GET']),
+        Route('/api/portfolios/{portfolio_id}', handlers.delete_portfolio, methods=['DELETE']),
         Route('/api/runs', handlers.list_runs, methods=['GET']),
         Route('/api/runs', handlers.create_run, methods=['POST']),
         Route('/api/runs/compare', handlers.compare_runs, methods=['GET']),

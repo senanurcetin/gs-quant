@@ -39,6 +39,7 @@ class Settings:
     api_token: Optional[str] = None  # when set, every /api/ endpoint except the probes needs 'Authorization: Bearer'
     max_body_bytes: int = 1_000_000
     max_runs: int = 200  # oldest saved runs are dropped beyond this
+    max_portfolios: int = 50  # named portfolios are never dropped: saving one more is refused
     log_level: str = 'INFO'
     market_data: Optional[str] = 'yahoo'  # where prices can be loaded from by symbol: 'yahoo', 'stooq' or None for off
 
@@ -59,6 +60,7 @@ class Settings:
                 api_token=get('API_TOKEN'),
                 max_body_bytes=int(get('MAX_BODY_BYTES') or defaults.max_body_bytes),
                 max_runs=int(get('MAX_RUNS') or defaults.max_runs),
+                max_portfolios=int(get('MAX_PORTFOLIOS') or defaults.max_portfolios),
                 log_level=(get('LOG_LEVEL') or defaults.log_level).upper(),
                 market_data=cls._market_data(get('MARKET_DATA'), defaults.market_data),
             )
@@ -80,6 +82,8 @@ class Settings:
             raise ValueError('max_body_bytes must be at least 1000')
         if self.max_runs < 1:
             raise ValueError('max_runs must be at least 1')
+        if self.max_portfolios < 1:
+            raise ValueError('max_portfolios must be at least 1')
         if self.log_level not in LOG_LEVELS:
             raise ValueError(f'log_level must be one of {", ".join(LOG_LEVELS)}')
         if self.market_data is not None and self.market_data not in PROVIDERS:
