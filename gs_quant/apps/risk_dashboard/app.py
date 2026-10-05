@@ -33,7 +33,7 @@ from starlette.staticfiles import StaticFiles
 
 from gs_quant.timeseries.risk_metrics import VaRMethod
 
-from . import analysis, portfolio, report
+from . import analysis, marketdata, portfolio, report
 from .settings import Settings
 from .store import RunStore
 
@@ -186,6 +186,7 @@ class Application:
     def __init__(self, settings: Settings):
         self.settings = settings
         self._store: Optional[RunStore] = None
+        self.market: Optional[marketdata.MarketData] = marketdata.make_market_data(settings.market_data)
 
     @property
     def store(self) -> RunStore:
@@ -228,6 +229,7 @@ class Application:
         return JSONResponse(
             {
                 'auth_required': self.settings.api_token is not None,
+                'market_data': self.market.label if self.market else None,
                 'limits': {
                     'observations': analysis.MAX_OBSERVATIONS,
                     'assets': portfolio.MAX_ASSETS,
@@ -258,6 +260,24 @@ class Application:
                 'returns': [round(float(v), 6) for v in series],
             }
         )
+
+    async def market_prices(self, request: Request) -> Response:
+        """Daily closing prices by symbol, from the provider the server was configured with"""
+        if self.market is None:
+            return _error(404, 'Loading prices by symbol is not enabled on this server')
+        params = request.query_params
+        try:
+            symbols = marketdata.parse_symbols(params.get('symbols', ''))
+            start, end = (dt.date.fromisoformat(params[k]) if params.get(k) else None for k in ('start', 'end'))
+        except marketdata.MarketDataError as e:
+            return _error(e.status, str(e))
+        except ValueError:
+            return _error(422, 'Dates must be YYYY-MM-DD')
+        try:
+            return JSONResponse(await run_in_threadpool(self.market.prices, symbols, start, end))
+        except marketdata.MarketDataError as e:
+            logger.warning('Market data request failed: %s', e)
+            return _error(e.status, str(e))
 
     async def _analyse(self, request: Request, kind: str) -> Response:
         params = await self._json(request, REQUEST_MODELS[kind])
@@ -446,6 +466,7 @@ def create_app(settings: Optional[Settings] = None) -> Starlette:
         Route('/api/config', handlers.config),
         Route('/api/scenarios', handlers.scenarios),
         Route('/api/sample', handlers.sample),
+        Route('/api/market/prices', handlers.market_prices),
         Route('/api/analyze', handlers.analyze, methods=['POST']),
         Route('/api/portfolio', handlers.analyze_portfolio, methods=['POST']),
         Route('/api/runs', handlers.list_runs, methods=['GET']),

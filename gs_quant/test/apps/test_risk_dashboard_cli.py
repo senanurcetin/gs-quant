@@ -90,3 +90,51 @@ def test_exports_the_static_page(tmp_path, monkeypatch):
     assert cli.main(['export', '-o', str(tmp_path / 'x.html'), '--observations', '300']) == 0
 
     assert calls == [['-o', str(tmp_path / 'x.html'), '--observations', '300', '--seed', '7']]
+
+
+def test_check_data_reports_each_provider_and_the_exit_status(monkeypatch, capsys):
+    answers = {
+        'stooq': {'provider': 'Stooq', 'symbol': 'aapl.us', 'ok': False, 'error': 'Could not reach Stooq'},
+        'yahoo': {
+            'provider': 'Yahoo Finance',
+            'symbol': 'AAPL',
+            'ok': True,
+            'observations': 2500,
+            'first': '2016-10-05',
+            'last': '2026-10-02',
+            'last_close': 250.5,
+            'enough_for_analysis': True,
+        },
+    }
+    monkeypatch.setattr('gs_quant.apps.risk_dashboard.marketdata.check', lambda name, symbol=None: answers[name])
+
+    assert cli.main(['check-data']) == 1
+    out = capsys.readouterr().out
+    assert 'FAIL  Stooq: aapl.us: Could not reach Stooq' in out
+    assert 'OK    Yahoo Finance: AAPL, 2500 daily closes, 2016-10-05 to 2026-10-02, last close 250.5' in out
+    assert 'RISK_APP_MARKET_DATA' in out
+
+    assert cli.main(['check-data', '--provider', 'yahoo']) == 0
+    assert 'Stooq' not in capsys.readouterr().out
+
+
+def test_check_data_passes_the_symbol_through(monkeypatch):
+    seen = []
+
+    def fake(name, symbol=None):
+        seen.append((name, symbol))
+        return {
+            'provider': name,
+            'symbol': symbol,
+            'ok': True,
+            'observations': 1,
+            'first': 'a',
+            'last': 'b',
+            'last_close': 1.0,
+            'enough_for_analysis': False,
+        }
+
+    monkeypatch.setattr('gs_quant.apps.risk_dashboard.marketdata.check', fake)
+
+    assert cli.main(['check-data', '--symbol', 'THYAO.IS']) == 0
+    assert seen == [('stooq', 'THYAO.IS'), ('yahoo', 'THYAO.IS')]

@@ -30,6 +30,7 @@ import uvicorn  # noqa: E402
 
 from gs_quant.apps.risk_dashboard.app import create_app  # noqa: E402
 from gs_quant.apps.risk_dashboard.settings import Settings  # noqa: E402
+from gs_quant.test.apps.test_risk_dashboard_marketdata import prices_for, stooq_csv, stooq_service  # noqa: E402
 
 
 def _chromium():
@@ -43,8 +44,15 @@ def server(tmp_path_factory):
     with socket.socket() as probe:
         probe.bind(('127.0.0.1', 0))
         port = probe.getsockname()[1]
-    settings = Settings(port=port, database=tmp_path_factory.mktemp('data') / 'runs.db')
-    instance = uvicorn.Server(uvicorn.Config(create_app(settings), port=port, log_level='warning'))
+    settings = Settings(port=port, database=tmp_path_factory.mktemp('data') / 'runs.db', market_data='stooq')
+    app = create_app(settings)
+    bodies = {
+        'thyao.is': stooq_csv(prices_for(1)),
+        'garan.is': stooq_csv(prices_for(2)),
+        'asels.is': stooq_csv(prices_for(3)),
+    }
+    app.state.application.market = stooq_service(bodies)  # no network: the provider answers from memory
+    instance = uvicorn.Server(uvicorn.Config(app, port=port, log_level='warning'))
     thread = threading.Thread(target=instance.run, daemon=True)
     thread.start()
     deadline = time.time() + 10
@@ -125,3 +133,39 @@ def test_portfolio_save_open_report_and_delete(server, browser, tmp_path):
     page.locator('#history li').nth(1).wait_for(state='detached')
 
     assert problems == []  # no script error and no Content Security Policy violation, in the app or in the report
+
+
+def test_loading_prices_by_symbol(server, browser):
+    page = browser.new_page()
+    problems = []
+    page.on('pageerror', lambda e: problems.append(str(e)))
+    page.on('console', lambda m: problems.append(m.text) if m.type in ('error', 'warning') else None)
+
+    page.goto(server)
+    page.wait_for_selector('#market-field:not([hidden])')
+    assert 'Stooq' in page.inner_text('#market-hint')
+
+    page.fill('#symbols', 'THYAO.IS, GARAN.IS')  # one symbol only in this mode
+    page.click('#market-load')
+    page.locator('#status.error').wait_for()
+    assert 'one symbol' in page.inner_text('#status')
+
+    page.fill('#symbols', 'THYAO.IS')
+    page.select_option('#market-history', 'all')
+    page.click('#market-load')
+    page.locator('#provenance').filter(has_text='prices from Stooq').wait_for()
+    provenance = page.inner_text('#provenance').lower()
+    assert 'thyao.is' in provenance and 'market data' in provenance
+
+    page.click('input[name=mode][value=portfolio]')
+    page.fill('#symbols', 'THYAO.IS, GARAN.IS, ASELS.IS')
+    page.click('#market-load')
+    page.wait_for_selector('#portfolio-section:not([hidden])')
+    assert page.locator('#table-assets tbody tr').count() == 4
+    assert 'ASELS.IS' in page.inner_text('#table-assets')
+
+    page.fill('#symbols', 'NOPE.IS')
+    page.click('#market-load')
+    page.locator('#status.error').filter(has_text='at least two').wait_for()
+
+    assert problems == []

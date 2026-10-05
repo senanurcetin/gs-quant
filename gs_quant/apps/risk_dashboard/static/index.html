@@ -61,6 +61,23 @@
           </div>
         </div>
 
+        <div class="field" id="market-field" hidden>
+          <label for="symbols" id="symbols-label">Load by symbol</label>
+          <div class="row">
+            <input id="symbols" type="text" maxlength="200" autocomplete="off" spellcheck="false" aria-describedby="market-hint">
+            <button type="button" class="button" id="market-load">Load</button>
+          </div>
+          <label class="sr-only" for="market-history">History</label>
+          <select id="market-history">
+            <option value="1">Last year</option>
+            <option value="3">Last 3 years</option>
+            <option value="5" selected>Last 5 years</option>
+            <option value="10">Last 10 years</option>
+            <option value="all">All available</option>
+          </select>
+          <p class="hint" id="market-hint"></p>
+        </div>
+
         <div class="field" id="scenario-field">
           <label for="scenario">Sample scenario</label>
           <select id="scenario" name="scenario"></select>

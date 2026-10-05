@@ -115,6 +115,8 @@
         ...jsonBody({ name, kind: dataset.portfolio ? 'portfolio' : 'single', request: requestBody(dataset, settings) }),
       }),
     openRun: (id) => requestJson(`/api/runs/${id}`),
+    marketPrices: (symbols, start) =>
+      requestJson(`/api/market/prices?symbols=${encodeURIComponent(symbols.join(','))}${start ? `&start=${start}` : ''}`),
     compareRuns: (ids) => requestJson(`/api/runs/compare?ids=${ids.join(',')}`),
     deleteRun: (id) => requestJson(`/api/runs/${id}`, { method: 'DELETE' }),
     async reportBlob(id) {
@@ -533,7 +535,8 @@
     const dataset = state.dataset;
     const simulated = dataset && dataset.simulated;
     const saved = dataset && dataset.saved;
-    const tagText = saved ? 'Saved report' : simulated ? 'Simulated data' : 'Your data';
+    const market = dataset && dataset.market;
+    const tagText = saved ? 'Saved report' : market ? 'Market data' : simulated ? 'Simulated data' : 'Your data';
     const tag = element('span', { className: `tag${simulated ? '' : ' real'}`, text: tagText });
     const period = /^\d{4}-\d{2}-\d{2}$/.test(dates[0]) ? `${dates[0]} to ${dates[dates.length - 1]}` : `${dates.length} observations`;
     const assets = result.portfolio ? `${result.portfolio.assets.length} assets` : '';
@@ -542,6 +545,7 @@
     else if (assets) label = 'Uploaded portfolio';
     const parts = [label, assets, `${integer(result.summary.observations)} returns`, period];
     if (saved && dataset.createdAt) parts.push(`saved ${dataset.createdAt.slice(0, 10)}`);
+    if (market) parts.push(`prices from ${market}`);
     $('#provenance').replaceChildren(tag, parts.filter(Boolean).join(' · '));
   }
 
@@ -1076,6 +1080,7 @@
     compare: new Set(),
     limits: { assets: 10 },
     scenarios: [],
+    marketSource: null,
     started: false,
   };
 
@@ -1105,7 +1110,17 @@
     return { confidence: confidenceValue(), method: $('#method').value, window: Number($('#window').value) };
   }
 
+  // The rolling window must be shorter than the series: a short history gets a window that fits instead of an error
+  function fitWindow(dataset) {
+    const first = dataset.portfolio ? Object.values(dataset.assets || {})[0] : dataset.values;
+    if (!first) return; // the static export has results only, not the series behind them
+    const returns = dataset.kind === 'prices' ? first.length - 1 : first.length;
+    const input = $('#window');
+    if (returns <= Number(input.value) + 1 && !input.closest('.field').hidden) input.value = Math.max(30, Math.floor(returns / 2));
+  }
+
   function setDataset(dataset) {
+    fitWindow(dataset);
     state.dataset = dataset;
     state.datasets[dataset.portfolio ? 'portfolio' : 'single'] = dataset;
     state.savedRun = null;
@@ -1220,6 +1235,7 @@
     $('#portfolio-fields').hidden = !portfolio;
     $('#scenario-field').hidden = portfolio;
     $('#file-field').hidden = portfolio;
+    updateMarketField();
     $('#mode-hint').textContent = portfolio
       ? 'Assets held at constant weights, rebalanced every period. Shows what each asset adds to the risk.'
       : 'One series of returns or prices.';
@@ -1238,6 +1254,53 @@
       $('#results').hidden = true;
       setStatus(mode === 'portfolio' ? 'Upload a CSV of several assets or load the sample portfolio.' : '');
       if (mode === 'single') await chooseScenario(state.scenarios.find((s) => s.id === $('#scenario').value));
+    }
+  }
+
+  // ---- market data
+
+  function updateMarketField() {
+    const field = $('#market-field');
+    field.hidden = !state.marketSource;
+    if (!state.marketSource) return;
+    const portfolio = state.mode === 'portfolio';
+    $('#symbols-label').textContent = portfolio ? 'Load several symbols' : 'Load by symbol';
+    $('#symbols').placeholder = portfolio ? 'THYAO.IS, GARAN.IS, ASELS.IS' : 'THYAO.IS';
+    const adjusted = state.marketSource === 'Yahoo Finance' ? ', adjusted for splits and dividends' : '';
+    $('#market-hint').textContent = `Daily closing prices from ${state.marketSource}${adjusted}${portfolio ? `, two to ${state.limits.assets} symbols separated by commas` : ''}. They can be delayed, and are not investment advice.`;
+  }
+
+  async function loadMarket() {
+    const symbols = $('#symbols').value.split(',').map((s) => s.trim()).filter(Boolean);
+    const portfolio = state.mode === 'portfolio';
+    if (portfolio ? symbols.length < 2 : symbols.length !== 1) {
+      setStatus(portfolio ? 'Give at least two symbols, separated by commas.' : 'Give one symbol, or switch to a portfolio for several.', true);
+      return;
+    }
+    const years = $('#market-history').value;
+    let start = null;
+    if (years !== 'all') {
+      const from = new Date();
+      from.setFullYear(from.getFullYear() - Number(years));
+      start = from.toISOString().slice(0, 10);
+    }
+    setStatus(`Loading prices from ${state.marketSource}…`);
+    try {
+      const data = await api.marketPrices(symbols, start);
+      if (portfolio) {
+        setDataset({
+          id: 'portfolio', portfolio: true, simulated: false, market: data.source, title: data.symbols.join(', '), kind: 'prices',
+          assets: data.prices, dates: data.dates, weights: equalWeights(data.symbols),
+        });
+        renderWeights();
+      } else {
+        const symbol = data.symbols[0];
+        setDataset({ id: 'upload', simulated: false, market: data.source, title: symbol, kind: 'prices', values: data.prices[symbol], dates: data.dates });
+        $('#file').value = '';
+      }
+      await run();
+    } catch (error) {
+      fail(error);
     }
   }
 
@@ -1432,6 +1495,8 @@
     $('#token-form').hidden = true;
     setStatus('');
     state.limits = config.limits;
+    state.marketSource = config.market_data || null;
+    updateMarketField();
     $('#max-assets').textContent = config.limits.assets;
 
     const scenarioSelect = $('#scenario');
@@ -1513,6 +1578,14 @@
     });
 
     if (fixed) return;
+
+    $('#market-load').addEventListener('click', loadMarket);
+    $('#symbols').addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        loadMarket();
+      }
+    });
 
     // portfolio
     document.querySelectorAll('input[name="mode"]').forEach((radio) => radio.addEventListener('change', () => switchMode(radio.value)));

@@ -282,3 +282,5 @@ body.report .controls, body.report .history, body.report .save-form { display: n
 .runs .name input { margin: 0; accent-color: var(--accent); }
 .compare th[scope='col'] { text-align: right; max-width: 14rem; white-space: normal; overflow-wrap: anywhere; }
 .compare td { white-space: normal; }
+
+#market-field .row { display: flex; gap: 8px; align-items: center; }
