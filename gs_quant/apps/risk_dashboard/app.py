@@ -34,7 +34,7 @@ from starlette.staticfiles import StaticFiles
 
 from gs_quant.timeseries.risk_metrics import VaRMethod
 
-from . import analysis, marketdata, portfolio, report
+from . import analysis, limits, marketdata, portfolio, report
 from .settings import Settings
 from .store import RunStore, StoreFull
 
@@ -315,7 +315,7 @@ class Application:
         except Exception:
             logger.exception('Readiness check failed')
             return _error(503, 'The run store is not available')
-        return JSONResponse({'status': 'ready'})
+        return JSONResponse({'status': 'ready', 'schema': await run_in_threadpool(self.store.schema_version)})
 
     async def config(self, request: Request) -> Response:
         """What the page needs to know to present itself"""
@@ -507,15 +507,32 @@ class Application:
         )
 
 
+def _too_many(template: str, wait: float) -> JSONResponse:
+    seconds = max(int(math.ceil(wait)), 1)
+    return JSONResponse({'error': template.format(n=seconds)}, status_code=429, headers={'Retry-After': str(seconds)})
+
+
 class ApiGuardMiddleware:
     """Request ids, an access log, security headers and the optional bearer token
 
     The token is checked for every /api/ path but the probes. The page and its static files are public: they hold no data.
     """
 
-    def __init__(self, app, api_token: Optional[str] = None):
+    def __init__(
+        self,
+        app,
+        api_token: Optional[str] = None,
+        rate_limit: int = 0,
+        max_auth_failures: int = 0,
+        lockout_seconds: int = 300,
+        trust_proxy: bool = False,
+        clock=time.monotonic,
+    ):
         self.app = app
         self.api_token = api_token
+        self.trust_proxy = trust_proxy
+        self.limiter = limits.SlidingWindowLimiter(rate_limit, 60.0, clock) if rate_limit else None
+        self.lock = limits.FailureLock(max_auth_failures, lockout_seconds, clock) if max_auth_failures else None
 
     def _authorised(self, scope) -> bool:
         if self.api_token is None:
@@ -525,6 +542,26 @@ class ApiGuardMiddleware:
                 scheme, _, supplied = value.decode('latin-1').partition(' ')
                 return scheme.lower() == 'bearer' and hmac.compare_digest(supplied.strip(), self.api_token)
         return False
+
+    def _refusal(self, scope) -> Optional[Response]:
+        """The response that stops a request before it reaches the application, or None to let it through"""
+        client = limits.client_of(scope, self.trust_proxy)
+        if self.lock is not None:
+            wait = self.lock.locked(client)
+            if wait is not None:
+                logger.warning('Locked out after repeated wrong tokens: %s', client)
+                return _too_many('Too many failed attempts: try again in {n} seconds', wait)
+        if not self._authorised(scope):
+            if self.lock is not None:
+                self.lock.record(client)
+            return JSONResponse(
+                {'error': 'A valid access token is required'}, status_code=401, headers={'WWW-Authenticate': 'Bearer'}
+            )
+        if self.limiter is not None:
+            wait = self.limiter.hit(client)
+            if wait is not None:
+                return _too_many('Too many requests: try again in {n} seconds', wait)
+        return None
 
     async def __call__(self, scope, receive, send):
         if scope['type'] != 'http':
@@ -556,13 +593,11 @@ class ApiGuardMiddleware:
             await send(message)
 
         try:
-            if is_api and path not in PUBLIC_API_PATHS and not self._authorised(scope):
-                response = JSONResponse(
-                    {'error': 'A valid access token is required'},
-                    status_code=401,
-                    headers={'WWW-Authenticate': 'Bearer'},
-                )
-                await response(scope, receive, send_with_headers)
+            refusal = None
+            if is_api and path not in PUBLIC_API_PATHS:
+                refusal = self._refusal(scope)
+            if refusal is not None:
+                await refusal(scope, receive, send_with_headers)
             else:
                 await self.app(scope, receive, send_with_headers)
         except Exception:
@@ -607,6 +642,13 @@ def create_app(settings: Optional[Settings] = None) -> Starlette:
         Mount('/static', StaticFiles(directory=STATIC_DIR), name='static'),
     ]
     app = Starlette(routes=routes)
-    app.add_middleware(ApiGuardMiddleware, api_token=settings.api_token)
+    app.add_middleware(
+        ApiGuardMiddleware,
+        api_token=settings.api_token,
+        rate_limit=settings.rate_limit,
+        max_auth_failures=settings.max_auth_failures,
+        lockout_seconds=settings.lockout_seconds,
+        trust_proxy=settings.trust_proxy,
+    )
     app.state.application = handlers
     return app

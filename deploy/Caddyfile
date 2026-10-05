@@ -1,0 +1,7 @@
+# TLS in front of the application: Caddy gets and renews a certificate for the domain by itself.
+# It replaces any X-Forwarded-For the caller sent with the caller's real address, which is what
+# RISK_APP_TRUST_PROXY=1 relies on.
+{$RISK_APP_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:8000
+}

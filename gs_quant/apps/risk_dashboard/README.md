@@ -83,6 +83,10 @@ Environment variables; a command line option overrides the matching one.
 | `RISK_APP_MAX_RUNS` | `200` | Saved analyses kept; the oldest are dropped |
 | `RISK_APP_MARKET_DATA` | `yahoo` | Where the page can load daily prices by symbol (`THYAO.IS`, `AAPL`): `yahoo`, `stooq` or `off`. Needs outbound HTTPS to that provider. Stooq now asks for an API key and does not work at present |
 | `RISK_APP_MAX_PORTFOLIOS` | `50` | Named portfolios kept; saving one more is refused (they are never dropped silently) |
+| `RISK_APP_RATE_LIMIT` | `600` | Requests per minute from one caller to `/api/`; more get a `429` with `Retry-After`. `0` for no limit. The page itself makes a few requests per second while a slider is dragged |
+| `RISK_APP_MAX_AUTH_FAILURES` | `10` | Wrong or missing tokens from one caller within the lockout time before it is locked out (`429`, even for the right token). `0` for never |
+| `RISK_APP_LOCKOUT_SECONDS` | `300` | How long the failures count, and so how long a lockout lasts |
+| `RISK_APP_TRUST_PROXY` | off | Take the caller's address from `X-Forwarded-For`: only behind a reverse proxy |
 | `RISK_APP_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR` |
 
 ## Running it for other people
@@ -95,8 +99,26 @@ export RISK_APP_API_TOKEN="$(python -c 'import secrets; print(secrets.token_urls
 gs-quant-risk serve --host 0.0.0.0
 ```
 
-Put it behind a TLS terminating proxy: the token and the data travel in clear text otherwise. `--no-auth` overrides the
-check for a network you trust.
+The token and the data travel in clear text without TLS, so put it behind a reverse proxy that serves HTTPS and tell the
+application to trust it (`RISK_APP_TRUST_PROXY=1`, so that the address of each caller is the one the proxy saw, which the
+rate limit and the lockout below depend on). Only set that when the application cannot be reached except through the
+proxy: otherwise a caller could write the header itself. The last address in `X-Forwarded-For` is the one used, as that is
+the one the proxy wrote. `--no-auth` overrides the token check for a network you trust.
+
+`deploy/` has what is needed: `docker-compose.yml` runs the application and Caddy (which obtains and renews a certificate
+for your domain by itself), `Caddyfile`, and `gs-quant-risk.service` for running without Docker. For nginx:
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:8000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;   # adds the caller's address at the end
+    client_max_body_size 1m;
+}
+```
+
+The files in `deploy/` have not been run end to end by the author: the compose file and the unit are checked for syntax
+only, so try them on a test machine first.
 
 ### Docker
 
@@ -116,6 +138,14 @@ The image runs as an unprivileged user, keeps the saved analyses in the `/data` 
   with the method, path, status, duration and that id; query strings and bodies are never logged. An unexpected error is
   logged with its traceback and the caller gets a JSON `500` that holds the request id and nothing else.
 - Saved analyses are the request only (compressed), so the database stays small; back it up by copying the file.
+- The database has a version (SQLite's `user_version`). When a release needs a change to the tables, the file is copied
+  aside first (`runs.db.bak-v0`, named after the version it had) and then brought up one step at a time, all or nothing, so
+  a failed upgrade leaves the data as it was. A database written by a **newer** release is refused, not touched: the
+  application says so at start and exits. `GET /api/ready` reports the version.
+- At start the database is opened before anything is served, so a file that cannot be used (a directory that cannot be
+  created, a newer version) is reported then, not at the first request.
+- Limits per caller: the request rate, and a lockout after repeated wrong tokens (a log line says who was locked out).
+  What is remembered about callers is bounded, so it cannot be used to fill the memory.
 
 ### Checking the market data providers
 
