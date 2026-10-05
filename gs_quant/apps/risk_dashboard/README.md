@@ -5,12 +5,19 @@ shortfall and whether the VaR model can be trusted, for a simulated market, a CS
 **portfolio** of several assets. Analyses can be saved, reopened and exported as stand-alone reports. It needs no Marquee
 session.
 
+The application is part of this repository and is not on PyPI (`pip install gs-quant` installs Goldman Sachs' original
+package, which does not have it). Install it from a checkout, in a virtual environment (Python 3.10 to 3.13):
+
 ```bash
-pip install "gs-quant[app]"      # Starlette, Pydantic and uvicorn
-gs-quant-risk                    # http://127.0.0.1:8000
+git clone https://github.com/senanurcetin/gs-quant.git
+cd gs-quant
+python -m venv .venv
+.venv/bin/pip install -e ".[app]"     # Windows: .venv\Scripts\pip install -e ".[app]"
+.venv/bin/gs-quant-risk               # Windows: .venv\Scripts\gs-quant-risk   (http://127.0.0.1:8000)
 ```
 
-or, from a checkout, `python -m gs_quant.apps.risk_dashboard`. It listens on `127.0.0.1` only unless you say otherwise
+`python -m gs_quant.apps.risk_dashboard` does the same without needing the `Scripts` folder on the `PATH`, which is the usual
+reason a freshly installed command is "not recognized" on Windows. It listens on `127.0.0.1` only unless you say otherwise
 (see [Running it for other people](#running-it-for-other-people)).
 
 ## What it does
@@ -89,8 +96,8 @@ The image runs as an unprivileged user, keeps the saved analyses in the `/data` 
 ### Checking the market data providers
 
 ```bash
-gs-quant-risk check-data                      # both providers, AAPL
-gs-quant-risk check-data --provider yahoo --symbol THYAO.IS
+python -m gs_quant.apps.risk_dashboard check-data                      # both providers, AAPL
+python -m gs_quant.apps.risk_dashboard check-data --provider yahoo --symbol THYAO.IS
 ```
 
 fetches one symbol from the real service and prints what came back (number of daily closes, first and last date, last
