@@ -24,6 +24,9 @@ or, from a checkout, `python -m gs_quant.apps.risk_dashboard`. It listens on `12
   weights and the portfolio is analysed as above, held at constant weights and rebalanced every period. The page adds
   each asset's *share of volatility* and *share of expected shortfall* (Euler allocations, exact: they add up to 100%),
   the diversification ratio and the correlation matrix.
+- **Market data** (opt in with `RISK_APP_MARKET_DATA`): load one symbol, or two to ten for a portfolio, straight from Stooq or
+  Yahoo Finance. Prices are cached for 15 minutes, aligned on the dates all symbols traded, and analysed like an upload.
+  Provider calls go to a fixed host with a size limit, a timeout and no redirects; symbols are validated first.
 - **Stress**: the worst 1, 5 and 20 consecutive periods that actually occurred in the data, with their dates, how many
   times the VaR the worst period was and, for a portfolio, what each asset did over the same dates.
 - **Saved analyses**: name an analysis and it is kept in a SQLite file. Opening it recomputes it, so it always reflects
@@ -48,6 +51,7 @@ Environment variables; a command line option overrides the matching one.
 | `RISK_APP_API_TOKEN` | none | At least 16 characters. When set, every `/api/` endpoint except the probes needs `Authorization: Bearer <token>`, and the page asks for it |
 | `RISK_APP_MAX_BODY_BYTES` | `1000000` | Largest request body |
 | `RISK_APP_MAX_RUNS` | `200` | Saved analyses kept; the oldest are dropped |
+| `RISK_APP_MARKET_DATA` | off | `stooq` or `yahoo`: lets the page load daily closing prices by symbol (`THYAO.IS`, `spy.us`). The server then needs outbound HTTPS to that provider |
 | `RISK_APP_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR` |
 
 ## Running it for other people
@@ -87,6 +91,7 @@ The image runs as an unprivileged user, keeps the saved analyses in the `/data` 
 | Endpoint | |
 | --- | --- |
 | `GET /api/config` | Limits, and whether a token is needed |
+| `GET /api/market/prices?symbols=a,b&start=` | Closing prices by symbol from the configured provider (404 when none is configured); the answer can be sent as `prices` to `/api/analyze` or `/api/portfolio` |
 | `GET /api/scenarios`, `GET /api/sample?scenario=&n=&seed=` | The sample scenarios and their simulated returns |
 | `POST /api/analyze` | Body: `returns` or `prices`, optional `dates`, `confidence` (0.8 to 0.999), `method` (`historical`, `parametric`, `cornish_fisher`), `window`, `minimum_acceptable_return`, `periods_per_year`. At most 5,000 observations. |
 | `POST /api/portfolio` | Body: `assets` (name to values), `kind` (`returns` or `prices`), optional `weights` (name to weight, equal weights if omitted, scaled to sum to 1) and the same settings. Answers like `/api/analyze` plus a `portfolio` section. |

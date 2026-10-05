@@ -21,6 +21,7 @@ from typing import Mapping, Optional
 
 ENV_PREFIX = 'RISK_APP_'
 LOG_LEVELS = ('DEBUG', 'INFO', 'WARNING', 'ERROR')
+PROVIDERS = ('stooq', 'yahoo')
 
 
 def default_data_dir() -> Path:
@@ -39,6 +40,7 @@ class Settings:
     max_body_bytes: int = 1_000_000
     max_runs: int = 200  # oldest saved runs are dropped beyond this
     log_level: str = 'INFO'
+    market_data: Optional[str] = None  # 'stooq' or 'yahoo': where prices can be loaded from by symbol; off by default
 
     @classmethod
     def from_env(cls, environ: Optional[Mapping[str, str]] = None) -> 'Settings':
@@ -58,6 +60,7 @@ class Settings:
                 max_body_bytes=int(get('MAX_BODY_BYTES') or defaults.max_body_bytes),
                 max_runs=int(get('MAX_RUNS') or defaults.max_runs),
                 log_level=(get('LOG_LEVEL') or defaults.log_level).upper(),
+                market_data=(get('MARKET_DATA') or '').lower() or None,
             )
         except ValueError as e:
             raise ValueError(f'Invalid {ENV_PREFIX}* setting: {e}') from e
@@ -73,6 +76,8 @@ class Settings:
             raise ValueError('max_runs must be at least 1')
         if self.log_level not in LOG_LEVELS:
             raise ValueError(f'log_level must be one of {", ".join(LOG_LEVELS)}')
+        if self.market_data is not None and self.market_data not in PROVIDERS:
+            raise ValueError(f'market_data must be one of {", ".join(PROVIDERS)}')
         if self.api_token is not None and len(self.api_token) < 16:
             raise ValueError('api_token must be at least 16 characters')
 

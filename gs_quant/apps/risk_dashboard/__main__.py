@@ -85,6 +85,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             max_body_bytes=settings.max_body_bytes,
             max_runs=settings.max_runs,
             log_level=settings.log_level,
+            market_data=settings.market_data,
         )
         settings.validate()
     except ValueError as e:
@@ -104,11 +105,12 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     configure_logging(settings.log_level)
     logging.getLogger(LOGGER).info(
-        'Serving on http://%s:%d, saved analyses in %s, access token %s',
+        'Serving on http://%s:%d, saved analyses in %s, access token %s, market data %s',
         settings.host,
         settings.port,
         settings.database,
         'required' if settings.api_token else 'not required',
+        settings.market_data or 'off',
     )
     # the application logs its own access lines, with request ids
     uvicorn.run(create_app(settings), host=settings.host, port=settings.port, log_level='warning', access_log=False)
