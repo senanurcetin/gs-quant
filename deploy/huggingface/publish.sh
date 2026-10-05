@@ -7,9 +7,14 @@ SPACE="${1:-senanurcetin/gs-quant-risk}"
 : "${HF_TOKEN:?Set HF_TOKEN to a Hugging Face token with write access}"
 
 # Create the Space when it does not exist yet (HTTP 409 means it already does); public unless HF_PRIVATE=true
-curl -sS -o /dev/null -w '' -X POST https://huggingface.co/api/repos/create \
+RESPONSE="$(curl -sS -w '\n%{http_code}' -X POST https://huggingface.co/api/repos/create \
   -H "Authorization: Bearer ${HF_TOKEN}" -H 'Content-Type: application/json' \
-  -d "{\"type\":\"space\",\"sdk\":\"docker\",\"name\":\"${SPACE#*/}\",\"organization\":\"${SPACE%%/*}\",\"private\":${HF_PRIVATE:-false}}" || true
+  -d "{\"type\":\"space\",\"sdk\":\"docker\",\"name\":\"${SPACE#*/}\",\"organization\":\"${SPACE%%/*}\",\"private\":${HF_PRIVATE:-false}}")"
+STATUS="${RESPONSE##*$'\n'}"
+if [ "$STATUS" != "200" ] && [ "$STATUS" != "409" ]; then
+  echo "Creating the Space failed (HTTP $STATUS): ${RESPONSE%$'\n'*}" >&2
+  exit 1
+fi
 
 ROOT="$(git rev-parse --show-toplevel)"
 WORK="$(mktemp -d)"
