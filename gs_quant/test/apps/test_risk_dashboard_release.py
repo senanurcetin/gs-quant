@@ -15,10 +15,12 @@ under the License.
 """
 
 import importlib.util
+import os
 import re
 import shutil
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -39,7 +41,7 @@ def load(name):
 
 def tree(tmp_path) -> Path:
     """A source tree without git history, like the one a Docker build has"""
-    (tmp_path / 'gs_quant').mkdir()
+    (tmp_path / 'gs_quant').mkdir(parents=True)
     for name in ('_version.py', '__init__.py'):
         shutil.copy(ROOT / 'gs_quant' / name, tmp_path / 'gs_quant' / name)
     return tmp_path
@@ -70,6 +72,44 @@ class TestPinVersion:
         assert version() == '0+unknown'
         load('pin_version').pin('4.5.6', source)
         assert version() == '4.5.6'
+
+    def test_the_built_package_reports_the_pinned_version(self, tmp_path):
+        """versioneer rewrites _version.py when it builds: what it wrote must still be the pinned version"""
+        pytest.importorskip('setuptools')
+        pytest.importorskip('wheel')
+        pytest.importorskip('pip')
+        source = tree(tmp_path / 'src')
+        for name in ('setup.py', 'versioneer.py', 'setup.cfg', 'pyproject.toml'):
+            if (ROOT / name).exists():
+                shutil.copy(ROOT / name, source / name)
+        load('pin_version').pin('4.5.6', source)
+
+        built = subprocess.run(
+            [
+                sys.executable,
+                '-m',
+                'pip',
+                'wheel',
+                '.',
+                '--no-deps',
+                '--no-build-isolation',
+                '-w',
+                str(tmp_path / 'out'),
+            ],
+            cwd=source,
+            env={**os.environ, 'PYTHONPATH': str(source)},  # setup.py imports versioneer from the tree
+            capture_output=True,
+            text=True,
+        )
+
+        assert built.returncode == 0, built.stderr[-800:]
+        (wheel,) = (tmp_path / 'out').glob('gs_quant-*.whl')
+        assert wheel.name.startswith('gs_quant-4.5.6-')
+        with zipfile.ZipFile(wheel) as archive:
+            inside = archive.read('gs_quant/_version.py').decode()
+        namespace: dict = {}
+        exec(compile(inside, '_version.py', 'exec'), namespace)  # noqa: S102 - the file this test just built
+        assert namespace['get_versions']()['version'] == '4.5.6'
 
     @pytest.mark.parametrize('bad', ['', 'latest', '1.2', 'v1.2.3', '1.2.3; rm -rf /', "1.2.3'"])
     def test_refuses_what_is_not_a_version(self, tmp_path, bad):
