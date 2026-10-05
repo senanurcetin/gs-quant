@@ -7,6 +7,25 @@
   const data = window.__RISK_DATA__;
   const key = (confidence, method) => `${confidence}|${method}`;
 
+  // A saved run exported as a report: one result, no controls
+  if (data.run) {
+    const run = data.run;
+    window.RiskApi = {
+      staticMode: true,
+      fixed: true,
+      async scenarios() {
+        return [{ id: 'run', title: run.name, description: '' }];
+      },
+      async loadScenario() {
+        return { id: 'run', title: run.name, simulated: false, saved: true, createdAt: run.created_at, kind: 'returns' };
+      },
+      async analyze() {
+        return run.result;
+      },
+    };
+    return;
+  }
+
   window.RiskApi = {
     staticMode: true,
     confidences: data.confidences,
