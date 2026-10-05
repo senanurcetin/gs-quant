@@ -115,8 +115,8 @@
         ...jsonBody({ name, kind: dataset.portfolio ? 'portfolio' : 'single', request: requestBody(dataset, settings) }),
       }),
     openRun: (id) => requestJson(`/api/runs/${id}`),
-    marketPrices: (symbols, start) =>
-      requestJson(`/api/market/prices?symbols=${encodeURIComponent(symbols.join(','))}${start ? `&start=${start}` : ''}`),
+    marketPrices: (symbols, start, base) =>
+      requestJson(`/api/market/prices?symbols=${encodeURIComponent(symbols.join(','))}${start ? `&start=${start}` : ''}${base ? `&base=${base}` : ''}`),
     compareRuns: (ids) => requestJson(`/api/runs/compare?ids=${ids.join(',')}`),
     deleteRun: (id) => requestJson(`/api/runs/${id}`, { method: 'DELETE' }),
     async reportBlob(id) {
@@ -553,6 +553,7 @@
     const notes = [
       `Rolling window of ${result.settings.window} periods, ${result.settings.periods_per_year} periods per year.`,
       'Every figure is a fraction of the portfolio, and losses are negative.',
+      ...((state.dataset && state.dataset.notes) || []),
       ...result.assumptions,
     ];
     const list = $('#notes');
@@ -1286,16 +1287,17 @@
     }
     setStatus(`Loading prices from ${state.marketSource}…`);
     try {
-      const data = await api.marketPrices(symbols, start);
+      const data = await api.marketPrices(symbols, start, $('#market-base').value);
+      const inBase = data.base && Object.keys(data.converted).length ? ` in ${data.base}` : '';
       if (portfolio) {
         setDataset({
-          id: 'portfolio', portfolio: true, simulated: false, market: data.source, title: data.symbols.join(', '), kind: 'prices',
+          id: 'portfolio', portfolio: true, simulated: false, market: data.source, title: `${data.symbols.join(', ')}${inBase}`, notes: data.notes, kind: 'prices',
           assets: data.prices, dates: data.dates, weights: equalWeights(data.symbols),
         });
         renderWeights();
       } else {
         const symbol = data.symbols[0];
-        setDataset({ id: 'upload', simulated: false, market: data.source, title: symbol, kind: 'prices', values: data.prices[symbol], dates: data.dates });
+        setDataset({ id: 'upload', simulated: false, market: data.source, title: `${symbol}${inBase}`, notes: data.notes, kind: 'prices', values: data.prices[symbol], dates: data.dates });
         $('#file').value = '';
       }
       await run();

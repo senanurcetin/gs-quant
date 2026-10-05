@@ -20,6 +20,7 @@ import socket
 import threading
 import time
 
+import numpy as np
 import pytest
 
 pytest.importorskip('starlette')
@@ -30,7 +31,7 @@ import uvicorn  # noqa: E402
 
 from gs_quant.apps.risk_dashboard.app import create_app  # noqa: E402
 from gs_quant.apps.risk_dashboard.settings import Settings  # noqa: E402
-from gs_quant.test.apps.test_risk_dashboard_marketdata import prices_for, stooq_csv, stooq_service  # noqa: E402
+from gs_quant.test.apps.test_risk_dashboard_marketdata import DATES, fx_service, prices_for  # noqa: E402
 
 
 def _chromium():
@@ -44,14 +45,16 @@ def server(tmp_path_factory):
     with socket.socket() as probe:
         probe.bind(('127.0.0.1', 0))
         port = probe.getsockname()[1]
-    settings = Settings(port=port, database=tmp_path_factory.mktemp('data') / 'runs.db', market_data='stooq')
+    settings = Settings(port=port, database=tmp_path_factory.mktemp('data') / 'runs.db', market_data='yahoo')
     app = create_app(settings)
-    bodies = {
-        'thyao.is': stooq_csv(prices_for(1)),
-        'garan.is': stooq_csv(prices_for(2)),
-        'asels.is': stooq_csv(prices_for(3)),
+    quotes = {
+        'THYAO.IS': ('TRY', prices_for(1), DATES),
+        'GARAN.IS': ('TRY', prices_for(2), DATES),
+        'ASELS.IS': ('TRY', prices_for(3), DATES),
+        'AAPL': ('USD', prices_for(4), DATES),
+        'USDTRY=X': ('TRY', 30 + np.arange(len(DATES)) * 0.05, DATES),
     }
-    app.state.application.market = stooq_service(bodies)  # no network: the provider answers from memory
+    app.state.application.market = fx_service(quotes)  # no network: the provider answers from memory
     instance = uvicorn.Server(uvicorn.Config(app, port=port, log_level='warning'))
     thread = threading.Thread(target=instance.run, daemon=True)
     thread.start()
@@ -143,7 +146,7 @@ def test_loading_prices_by_symbol(server, browser):
 
     page.goto(server)
     page.wait_for_selector('#market-field:not([hidden])')
-    assert 'Stooq' in page.inner_text('#market-hint')
+    assert 'Yahoo Finance' in page.inner_text('#market-hint')
 
     page.fill('#symbols', 'THYAO.IS, GARAN.IS')  # one symbol only in this mode
     page.click('#market-load')
@@ -153,7 +156,7 @@ def test_loading_prices_by_symbol(server, browser):
     page.fill('#symbols', 'THYAO.IS')
     page.select_option('#market-history', 'all')
     page.click('#market-load')
-    page.locator('#provenance').filter(has_text='prices from Stooq').wait_for()
+    page.locator('#provenance').filter(has_text='prices from Yahoo Finance').wait_for()
     provenance = page.inner_text('#provenance').lower()
     assert 'thyao.is' in provenance and 'market data' in provenance
 
@@ -163,6 +166,16 @@ def test_loading_prices_by_symbol(server, browser):
     page.wait_for_selector('#portfolio-section:not([hidden])')
     assert page.locator('#table-assets tbody tr').count() == 4
     assert 'ASELS.IS' in page.inner_text('#table-assets')
+
+    # assets quoted in different currencies are converted to one
+    page.fill('#symbols', 'THYAO.IS, AAPL')
+    page.click('#market-load')
+    page.locator('#provenance').filter(has_text='THYAO.IS, AAPL in TRY').wait_for()
+    assert 'USDTRY=X' in page.text_content('#notes') and 'different currencies' in page.text_content('#notes')
+    page.select_option('#market-base', 'USD')
+    page.click('#market-load')
+    page.locator('#provenance').filter(has_text='in USD').wait_for()
+    page.select_option('#market-base', '')
 
     page.fill('#symbols', 'NOPE.IS')
     page.click('#market-load')

@@ -67,6 +67,16 @@
             <input id="symbols" type="text" maxlength="200" autocomplete="off" spellcheck="false" aria-describedby="market-hint">
             <button type="button" class="button" id="market-load">Load</button>
           </div>
+          <label class="sr-only" for="market-base">Currency</label>
+          <select id="market-base">
+            <option value="">Currency: automatic</option>
+            <option value="TRY">Convert to TRY</option>
+            <option value="USD">Convert to USD</option>
+            <option value="EUR">Convert to EUR</option>
+            <option value="GBP">Convert to GBP</option>
+            <option value="JPY">Convert to JPY</option>
+            <option value="CHF">Convert to CHF</option>
+          </select>
           <label class="sr-only" for="market-history">History</label>
           <select id="market-history">
             <option value="1">Last year</option>
