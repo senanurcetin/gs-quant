@@ -5,6 +5,10 @@ release are the section of that version below, and are published with it.
 
 ## [Unreleased]
 
+### Changed
+- Turkish: "Growth of 100" reads naturally ("100 birimlik yatırımın değeri"), and the Christoffersen test is named as a test.
+  `TR_TERMS.md` lists the finance terms of the Turkish interface and the ones that need a finance reader's decision.
+
 ### Fixed
 - The exported dashboard (`gs-quant-risk export`) stopped at start-up in a browser, because a listener was attached to a
   form that the export removes. It now works, and a browser test opens it.
