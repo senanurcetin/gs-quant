@@ -221,3 +221,24 @@ class TestWorkflows:
 
         assert 'build' not in compose['services']['app']
         assert compose['services']['app']['image'].startswith('ghcr.io/senanurcetin/gs-quant-risk:')
+
+
+class TestDemoWorkflow:
+    def load(self):
+        yaml = pytest.importorskip('yaml')
+        return yaml.safe_load((ROOT / '.github' / 'workflows' / 'pages.yml').read_text(encoding='utf-8'))
+
+    def test_pull_requests_build_the_demo_but_only_master_publishes_it(self):
+        workflow = self.load()
+        triggers = workflow.get('on', workflow.get(True))
+
+        assert triggers['push']['branches'] == ['master'] and 'pull_request' in triggers
+        assert workflow['jobs']['deploy']['if'] == "github.event_name != 'pull_request'"
+        assert workflow['jobs']['deploy']['needs'] == 'build'
+        assert workflow['permissions'] == {'contents': 'read'}  # only the publishing job may write to Pages
+        assert workflow['jobs']['deploy']['permissions'] == {'pages': 'write', 'id-token': 'write'}
+
+    def test_it_publishes_what_the_export_command_writes(self):
+        steps = '\n'.join(s.get('run', '') for s in self.load()['jobs']['build']['steps'])
+
+        assert 'gs_quant.apps.risk_dashboard export -o site/index.html' in steps

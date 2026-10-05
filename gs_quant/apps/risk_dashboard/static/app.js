@@ -1416,7 +1416,7 @@
     const portfolio = mode === 'portfolio';
     $('#portfolio-fields').hidden = !portfolio;
     $('#scenario-field').hidden = portfolio;
-    $('#file-field').hidden = portfolio;
+    $('#file-field').hidden = portfolio || api.staticMode; // a static export cannot read a file: nothing calculates there
     updateMarketField();
     updateBook();
     $('#mode-hint').textContent = portfolio
@@ -1926,7 +1926,7 @@
       }
     });
 
-    if (fixed) return;
+    if (api.staticMode) return; // everything below needs the server: prices, portfolios, saved analyses
 
     $('#market-load').addEventListener('click', loadMarket);
     for (const input of [$('#symbols'), $('#benchmark')]) {

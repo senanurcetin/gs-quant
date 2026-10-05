@@ -1,0 +1,65 @@
+# The live demo: the dashboard exported as one file (gs-quant-risk export), with simulated data only and every result
+# calculated in advance by the Python code, published on GitHub Pages at https://<owner>.github.io/<repo>/.
+# Needs Settings > Pages > Source: "GitHub Actions" once. Pull requests only build the file, to check that it can be built.
+name: Demo
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'gs_quant/apps/risk_dashboard/**'
+      - 'gs_quant/timeseries/risk_metrics.py'
+      - '.github/workflows/pages.yml'
+  pull_request:
+    paths:
+      - 'gs_quant/apps/risk_dashboard/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build the demo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ".[app]"
+      - name: Export the dashboard
+        run: |
+          mkdir site
+          python -m gs_quant.apps.risk_dashboard export -o site/index.html
+          touch site/.nojekyll
+      - name: Check what was built
+        run: |
+          test "$(wc -c < site/index.html)" -gt 500000
+          grep -q "__RISK_DATA__" site/index.html
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    name: Publish on GitHub Pages
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
