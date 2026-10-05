@@ -23,9 +23,15 @@ import time
 import numpy as np
 import pytest
 
+# The browser tests are skipped where Playwright or a browser is missing, unless CI says they must run
+REQUIRED = os.environ.get('RISK_APP_REQUIRE_BROWSER') == '1'
+
 pytest.importorskip('starlette')
 pytest.importorskip('uvicorn')
-sync_api = pytest.importorskip('playwright.sync_api')
+if REQUIRED:
+    from playwright import sync_api
+else:
+    sync_api = pytest.importorskip('playwright.sync_api')
 
 import uvicorn  # noqa: E402
 
@@ -72,6 +78,8 @@ def browser():
         try:
             instance = playwright.chromium.launch(executable_path=_chromium(), args=['--no-sandbox'])
         except Exception as e:  # no browser installed
+            if REQUIRED:
+                raise
             pytest.skip(f'Chromium is not available: {e}')
         yield instance
         instance.close()
