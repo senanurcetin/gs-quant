@@ -127,6 +127,8 @@ def test_server_messages_are_matched_by_the_patterns():
         'No exchange rate between USD and TRY is available',
         'Yahoo Finance is limiting requests: try again in a minute',
         'There is no such run',
+        'There is no such portfolio',
+        'You can keep at most 50 portfolios: delete one first',
         'Prices are in TRY, converted at the daily rate of USDTRY=X',
         'The assets are quoted in different currencies, so prices were converted to TRY',
         'The rolling window (250) must be shorter than the series (100 returns)',

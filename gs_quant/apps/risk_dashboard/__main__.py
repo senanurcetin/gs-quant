@@ -115,6 +115,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             api_token=settings.api_token,
             max_body_bytes=settings.max_body_bytes,
             max_runs=settings.max_runs,
+            max_portfolios=settings.max_portfolios,
             log_level=settings.log_level,
             market_data=settings.market_data,
         )

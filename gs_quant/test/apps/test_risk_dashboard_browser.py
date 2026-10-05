@@ -315,3 +315,73 @@ def test_what_if_scenarios(server, browser):
     page.click('#lang')
     page.locator('#whatif-title').filter(has_text='What if?').wait_for()
     assert problems == []
+
+
+def test_named_portfolios(server, browser):
+    page = browser.new_context(locale='en-US').new_page()
+    problems = []
+    page.on('pageerror', lambda e: problems.append(str(e)))
+    page.on('console', lambda m: problems.append(m.text) if m.type in ('error', 'warning') else None)
+    page.goto(server)
+    page.wait_for_selector('#results:not([hidden])')
+    assert not page.is_visible('#book-panel')  # a series, not a portfolio
+    page.click('input[name=mode][value=portfolio]')
+    page.wait_for_selector('#book-panel:not([hidden])')
+    assert not page.is_visible('#book-form')  # nothing from the market is loaded yet
+
+    page.fill('#symbols', 'THYAO.IS, GARAN.IS')
+    page.select_option('#market-base', 'USD')
+    page.select_option('#market-history', '10')
+    page.click('#market-load')
+    page.wait_for_selector('#portfolio-section:not([hidden])')
+    page.wait_for_selector('#book-form:not([hidden])')
+    page.fill('#weight-0', '70')
+    page.press('#weight-0', 'Tab')
+    page.fill('#weight-1', '30')
+    page.press('#weight-1', 'Tab')
+    page.wait_for_selector('#results:not(.loading)')
+    page.fill('#book-name', 'Banks')
+    page.click('#book-form button')
+    page.locator('#book li').first.wait_for()
+    assert (
+        'Banks' in page.inner_text('#book')
+        and 'THYAO.IS, GARAN.IS' in page.inner_text('#book')
+        and 'USD' in page.inner_text('#book')
+    )
+
+    # a new page: the portfolio is loaded again, with fresh prices and the weights that were saved
+    page.reload()
+    page.wait_for_selector('#results:not([hidden])')
+    page.click('input[name=mode][value=portfolio]')
+    page.locator('#book li').first.wait_for()
+    page.click('#book li button[data-action=open]')
+    page.wait_for_selector('#portfolio-section:not([hidden])')
+    page.wait_for_selector('#results:not(.loading)')
+    assert page.input_value('#symbols') == 'THYAO.IS, GARAN.IS' and page.input_value('#market-base') == 'USD'
+    assert page.input_value('#market-history') == '10'
+    assert page.input_value('#weight-0') == '70' and page.input_value('#weight-1') == '30'
+    assert 'USD' in page.inner_text('#provenance')
+
+    # saving under the same name replaces it
+    page.fill('#weight-0', '50')
+    page.press('#weight-0', 'Tab')
+    page.fill('#weight-1', '50')
+    page.press('#weight-1', 'Tab')
+    page.wait_for_selector('#results:not(.loading)')
+    page.click('#book-form button')
+    page.locator('#status').filter(has_text='saved').wait_for()
+    assert page.locator('#book li').count() == 1
+    stored = page.request.get(f'{server}/api/portfolios').json()
+    assert len(stored) == 1
+    assert page.request.get(f'{server}/api/portfolios/{stored[0]["id"]}').json()['definition']['weights'] == {
+        'THYAO.IS': 0.5,
+        'GARAN.IS': 0.5,
+    }
+
+    page.click('#lang')
+    page.locator('#book-title').filter(has_text='Portföylerim').wait_for()
+
+    page.once('dialog', lambda dialog: dialog.accept())
+    page.click('#book li button[data-action=delete]')
+    page.locator('#book li').first.wait_for(state='detached')
+    assert problems == []

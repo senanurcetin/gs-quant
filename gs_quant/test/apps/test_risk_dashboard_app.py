@@ -29,7 +29,7 @@ from starlette.testclient import TestClient  # noqa: E402
 from gs_quant.apps.risk_dashboard import analysis, portfolio, report  # noqa: E402
 from gs_quant.apps.risk_dashboard.app import create_app  # noqa: E402
 from gs_quant.apps.risk_dashboard.settings import Settings  # noqa: E402
-from gs_quant.apps.risk_dashboard.store import RunStore  # noqa: E402
+from gs_quant.apps.risk_dashboard.store import RunStore, StoreFull  # noqa: E402
 
 TOKEN = 'a-long-enough-test-token'
 
@@ -601,6 +601,149 @@ class TestRunsApi:
         response = client.post('/api/runs', content=b'{"name":"x"' + b' ' * 6_000)
 
         assert response.status_code == 413
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# Named portfolios
+# ----------------------------------------------------------------------------------------------------------------------
+
+
+def book_request(name='My book', **extra) -> dict:
+    return {
+        'name': name,
+        'symbols': ['thyao.is', 'GARAN.IS'],
+        'weights': {'THYAO.IS': 60, 'garan.is': 40},
+        'base': 'try',
+        'years': 5,
+        **extra,
+    }
+
+
+class TestPortfolioBook:
+    def test_store_keeps_replaces_lists_and_deletes(self, tmp_path):
+        store = RunStore(tmp_path / 'runs.db')
+
+        meta, created = store.save_portfolio('Core', {'symbols': ['A', 'B'], 'base': None})
+        again, created_again = store.save_portfolio('CORE', {'symbols': ['A', 'C'], 'base': 'USD'})
+
+        assert created and not created_again and again['id'] == meta['id'] and again['name'] == 'CORE'
+        assert [p['symbols'] for p in store.list_portfolios()] == [['A', 'C']]
+        assert store.get_portfolio(meta['id'])['definition']['base'] == 'USD'
+        assert store.delete_portfolio(meta['id']) is True and store.delete_portfolio(meta['id']) is False
+        assert store.get_portfolio(meta['id']) is None
+
+    def test_store_lists_by_name_and_refuses_more_than_the_limit(self, tmp_path):
+        store = RunStore(tmp_path / 'runs.db', max_portfolios=2)
+        store.save_portfolio('b', {'symbols': []})
+        store.save_portfolio('A', {'symbols': []})
+
+        assert [p['name'] for p in store.list_portfolios()] == ['A', 'b']
+        with pytest.raises(StoreFull, match='at most 2'):
+            store.save_portfolio('c', {'symbols': []})
+        store.save_portfolio('a', {'symbols': ['X']})  # replacing one needs no room
+
+    def test_portfolios_survive_in_a_database_that_has_only_runs(self, tmp_path):
+        import sqlite3
+
+        path = tmp_path / 'old.db'
+        db = sqlite3.connect(path)
+        db.execute(
+            'CREATE TABLE runs (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL, created_at TEXT NOT NULL, headline TEXT NOT NULL, request BLOB NOT NULL)'
+        )
+        db.commit()
+        db.close()
+
+        store = RunStore(path)
+
+        assert store.save_portfolio('x', {'symbols': ['A']})[1] is True
+
+    def test_save_load_update_and_delete_over_http(self, client):
+        saved = client.post('/api/portfolios', json=book_request())
+
+        assert saved.status_code == 201
+        meta = saved.json()
+        assert meta['name'] == 'My book' and meta['symbols'] == ['THYAO.IS', 'GARAN.IS'] and meta['base'] == 'TRY'
+        assert [p['id'] for p in client.get('/api/portfolios').json()] == [meta['id']]
+
+        opened = client.get(f'/api/portfolios/{meta["id"]}').json()
+        assert opened['definition'] == {
+            'symbols': ['THYAO.IS', 'GARAN.IS'],
+            'weights': {'THYAO.IS': 60.0, 'GARAN.IS': 40.0},
+            'base': 'TRY',
+            'years': 5,
+        }
+
+        updated = client.post('/api/portfolios', json=book_request('my BOOK', weights={'THYAO.IS': 1, 'GARAN.IS': 3}))
+        assert updated.status_code == 200 and updated.json()['id'] == meta['id']
+        assert client.get(f'/api/portfolios/{meta["id"]}').json()['definition']['weights']['GARAN.IS'] == 3.0
+        assert len(client.get('/api/portfolios').json()) == 1
+
+        assert client.delete(f'/api/portfolios/{meta["id"]}').status_code == 204
+        assert client.get(f'/api/portfolios/{meta["id"]}').status_code == 404
+        assert client.delete(f'/api/portfolios/{meta["id"]}').status_code == 404
+
+    def test_all_the_history_and_no_currency_are_allowed(self, client):
+        saved = client.post('/api/portfolios', json=book_request(base=None, years=None))
+
+        definition = client.get(f'/api/portfolios/{saved.json()["id"]}').json()['definition']
+        assert definition['base'] is None and definition['years'] is None
+
+    @pytest.mark.parametrize(
+        'changes, message',
+        [
+            ({'name': ' '}, 'printable'),
+            ({'name': 'x' * 121}, 'at most 120'),
+            ({'symbols': ['A']}, 'at least 2'),
+            ({'symbols': [f'S{i}' for i in range(11)]}, 'at most 10'),
+            ({'symbols': ['A', 'a'], 'weights': {'A': 1}}, 'once'),
+            ({'symbols': ['A', '../x'], 'weights': {'A': 1, '../x': 1}}, 'not a valid symbol'),
+            ({'weights': {'THYAO.IS': 1}}, 'exactly the symbols'),
+            ({'weights': {'THYAO.IS': 1, 'GARAN.IS': 1, 'EXTRA': 1}}, 'exactly the symbols'),
+            ({'weights': {'THYAO.IS': 1, 'GARAN.IS': -1}}, 'positive number'),
+            ({'weights': {'THYAO.IS': 'much', 'GARAN.IS': 1}}, 'valid number'),
+            ({'base': 'TL'}, 'not a currency code'),
+            ({'years': 7}, 'must be one of'),
+            ({'extra': 1}, 'Extra inputs'),
+        ],
+    )
+    def test_bad_portfolios_are_refused(self, client, changes, message):
+        response = client.post('/api/portfolios', json={**book_request(), **changes})
+
+        assert response.status_code == 422 and message in response.json()['error']
+        assert client.get('/api/portfolios').json() == []
+
+    def test_unknown_and_malformed_ids_are_404(self, client):
+        for portfolio_id in ('0' * 32, 'nope', '..%2fetc'):
+            assert client.get(f'/api/portfolios/{portfolio_id}').status_code == 404
+            assert client.delete(f'/api/portfolios/{portfolio_id}').status_code == 404
+
+    def test_the_limit_is_a_409_and_a_name_that_is_text_is_never_interpreted(self, tmp_path):
+        client = TestClient(create_app(make_settings(tmp_path, max_portfolios=1)))
+        name = '<img src=x onerror=alert(1)>'
+
+        assert client.post('/api/portfolios', json=book_request(name)).status_code == 201
+        full = client.post('/api/portfolios', json=book_request('another'))
+
+        assert full.status_code == 409 and 'at most 1' in full.json()['error']
+        assert client.get('/api/portfolios').json()[0]['name'] == name
+
+    def test_they_need_the_token_like_the_rest(self, tmp_path):
+        client = TestClient(create_app(make_settings(tmp_path, api_token=TOKEN)))
+
+        assert client.get('/api/portfolios').status_code == 401
+        assert client.post('/api/portfolios', json=book_request()).status_code == 401
+        assert client.delete(f'/api/portfolios/{"0" * 32}').status_code == 401
+
+    def test_a_saved_book_outlives_the_app(self, tmp_path):
+        settings = make_settings(tmp_path)
+        saved = TestClient(create_app(settings)).post('/api/portfolios', json=book_request()).json()
+
+        assert TestClient(create_app(settings)).get(f'/api/portfolios/{saved["id"]}').status_code == 200
+
+    def test_settings_read_the_limit(self):
+        assert Settings.from_env({'RISK_APP_MAX_PORTFOLIOS': '7'}).max_portfolios == 7
+        with pytest.raises(ValueError, match='max_portfolios'):
+            Settings.from_env({'RISK_APP_MAX_PORTFOLIOS': '0'})
 
 
 # ----------------------------------------------------------------------------------------------------------------------

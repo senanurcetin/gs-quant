@@ -132,6 +132,18 @@
 
     <div id="status" class="status" role="status" aria-live="polite"></div>
 
+    <section class="panel history" id="book-panel" aria-labelledby="book-title" hidden>
+      <h2 id="book-title" data-t>My portfolios</h2>
+      <p class="hint" id="book-hint"></p>
+      <form id="book-form" class="save-form" autocomplete="off">
+        <label class="sr-only" for="book-name" data-t>Name for this portfolio</label>
+        <input id="book-name" type="text" maxlength="120" data-t-attr="placeholder" placeholder="Name this portfolio" required>
+        <button type="submit" class="button" data-t>Save portfolio</button>
+      </form>
+      <p class="hint" id="book-empty" data-t>No portfolios yet.</p>
+      <ul id="book" class="runs"></ul>
+    </section>
+
     <section class="panel history" id="history-panel" aria-labelledby="history-title" hidden>
       <h2 id="history-title" data-t>Saved analyses</h2>
       <p class="hint" id="history-empty" data-t>Nothing saved yet. Run an analysis and give it a name to keep it here.</p>

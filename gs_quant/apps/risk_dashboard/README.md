@@ -55,6 +55,10 @@ reason a freshly installed command is "not recognized" on Windows. It listens on
   sum at its weights, shown beside how many times the VaR and the expected shortfall that is. It is a first-order answer,
   made in the same way for any asset: no betas or correlations are assumed, so a "market falls 10%" scenario means entering
   the fall of each asset yourself. Scenarios are saved with the analysis and appear, read-only, in its report.
+- **My portfolios**: a portfolio loaded by symbol can be saved under a name (symbols, weights, currency and the length of
+  history, not the prices). Opening one fetches fresh prices and applies the saved weights, so the same portfolio can be
+  looked at again next month without typing it. Saving under an existing name (case ignored) replaces it. Portfolios from an
+  uploaded CSV have no symbols and cannot be saved this way: save the analysis instead.
 - **Saved analyses**: name an analysis and it is kept in a SQLite file. Opening it recomputes it, so it always reflects
   the current model code. Each one can be downloaded as a **report**: one HTML file with its charts and numbers that opens
   without a server, offline. Tick two to four saved analyses to compare them side by side (for instance a portfolio before
@@ -78,6 +82,7 @@ Environment variables; a command line option overrides the matching one.
 | `RISK_APP_MAX_BODY_BYTES` | `1000000` | Largest request body |
 | `RISK_APP_MAX_RUNS` | `200` | Saved analyses kept; the oldest are dropped |
 | `RISK_APP_MARKET_DATA` | `yahoo` | Where the page can load daily prices by symbol (`THYAO.IS`, `AAPL`): `yahoo`, `stooq` or `off`. Needs outbound HTTPS to that provider. Stooq now asks for an API key and does not work at present |
+| `RISK_APP_MAX_PORTFOLIOS` | `50` | Named portfolios kept; saving one more is refused (they are never dropped silently) |
 | `RISK_APP_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR` |
 
 ## Running it for other people
@@ -138,6 +143,8 @@ prices are not covered, both sources being used for daily closes.
 | `GET /api/scenarios`, `GET /api/sample?scenario=&n=&seed=` | The sample scenarios and their simulated returns |
 | `POST /api/analyze` | Body: `returns` or `prices`, optional `dates`, `scenarios` (a list of `{name, shocks}`, shocks by asset name as fractions, `series` for a single series; at most five), `confidence` (0.8 to 0.999), `method` (`historical`, `parametric`, `cornish_fisher`), `window`, `minimum_acceptable_return`, `periods_per_year`. At most 5,000 observations. |
 | `POST /api/portfolio` | Body: `assets` (name to values), `kind` (`returns` or `prices`), optional `weights` (name to weight, equal weights if omitted, scaled to sum to 1) and the same settings. Answers like `/api/analyze` plus a `portfolio` section. |
+| `GET /api/portfolios`, `POST /api/portfolios` | List the named portfolios; keep one, `{name, symbols, weights, base, years}` (2 to 10 symbols, weights for exactly those, `years` 1, 3, 5, 10 or null for all). A name that exists is replaced (`200`, else `201`); beyond the limit `409` |
+| `GET /api/portfolios/{id}`, `DELETE /api/portfolios/{id}` | The definition of one, or delete it |
 | `GET /api/runs`, `POST /api/runs` | List the saved analyses; save one: `{name, kind: "single" or "portfolio", request}`, where `request` is the body of the matching analysis endpoint. The request is analysed first, so only valid ones are stored. |
 | `GET /api/runs/compare?ids=a,b,c` | The headline figures of two to four saved analyses, recomputed, in the order asked for |
 | `GET /api/runs/{id}`, `DELETE /api/runs/{id}` | Open (recomputed) or delete a saved analysis |

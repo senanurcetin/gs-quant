@@ -121,6 +121,10 @@
     openRun: (id) => requestJson(`/api/runs/${id}`),
     marketPrices: (symbols, start, base) =>
       requestJson(`/api/market/prices?symbols=${encodeURIComponent(symbols.join(','))}${start ? `&start=${start}` : ''}${base ? `&base=${base}` : ''}`),
+    listBook: () => requestJson('/api/portfolios'),
+    saveBook: (definition) => requestJson('/api/portfolios', { method: 'POST', ...jsonBody(definition) }),
+    openBook: (id) => requestJson(`/api/portfolios/${id}`),
+    deleteBook: (id) => requestJson(`/api/portfolios/${id}`, { method: 'DELETE' }),
     compareRuns: (ids) => requestJson(`/api/runs/compare?ids=${ids.join(',')}`),
     deleteRun: (id) => requestJson(`/api/runs/${id}`, { method: 'DELETE' }),
     async reportBlob(id) {
@@ -1165,6 +1169,7 @@
     timer: null,
     savedRun: null,
     runs: [],
+    book: [],
     compare: new Set(),
     limits: { assets: 10 },
     scenarios: [],
@@ -1211,6 +1216,7 @@
     fitWindow(dataset);
     state.dataset = dataset;
     state.datasets[dataset.portfolio ? 'portfolio' : 'single'] = dataset;
+    updateBook();
     state.savedRun = null;
     updateSaveControls();
   }
@@ -1324,6 +1330,7 @@
     $('#scenario-field').hidden = portfolio;
     $('#file-field').hidden = portfolio;
     updateMarketField();
+    updateBook();
     $('#mode-hint').textContent = portfolio
       ? t('Assets held at constant weights, rebalanced every period. Shows what each asset adds to the risk.')
       : t('One series of returns or prices.');
@@ -1365,7 +1372,7 @@
     $('#market-hint').textContent = hint.replace('{source}', state.marketSource).replace('{max}', state.limits.assets);
   }
 
-  async function loadMarket() {
+  async function loadMarket(options = {}) {
     const symbols = $('#symbols').value.split(',').map((s) => s.trim()).filter(Boolean);
     const portfolio = state.mode === 'portfolio';
     if (portfolio ? symbols.length < 2 : symbols.length !== 1) {
@@ -1381,12 +1388,14 @@
     }
     setStatus(t('Loading prices from {source}…', { source: state.marketSource }));
     try {
-      const data = await api.marketPrices(symbols, start, $('#market-base').value);
+      const base = $('#market-base').value;
+      const data = await api.marketPrices(symbols, start, base);
       const inBase = data.base && Object.keys(data.converted).length ? ' ' + t('in {currency}', { currency: data.base }) : '';
       if (portfolio) {
         setDataset({
           id: 'portfolio', portfolio: true, simulated: false, market: data.source, title: `${data.symbols.join(', ')}${inBase}`, notes: data.notes, kind: 'prices',
-          assets: data.prices, dates: data.dates, weights: equalWeights(data.symbols),
+          assets: data.prices, dates: data.dates, weights: options.weights ? scaledWeights(options.weights, data.symbols) : equalWeights(data.symbols),
+          symbols: data.symbols, base: base || null, years: years === 'all' ? null : Number(years),
         });
         renderWeights();
       } else {
@@ -1395,6 +1404,101 @@
         $('#file').value = '';
       }
       await run();
+    } catch (error) {
+      fail(error);
+    }
+  }
+
+  // ---- named portfolios
+
+  // The saved weights, scaled to add up to 1, for the symbols that were loaded
+  function scaledWeights(weights, symbols) {
+    const total = symbols.reduce((sum, symbol) => sum + (weights[symbol] || 0), 0);
+    return total > 0 ? Object.fromEntries(symbols.map((symbol) => [symbol, (weights[symbol] || 0) / total])) : equalWeights(symbols);
+  }
+
+  function updateBook() {
+    const panel = $('#book-panel');
+    panel.hidden = api.staticMode || !state.marketSource || state.mode !== 'portfolio';
+    if (panel.hidden) return;
+    const loaded = state.datasets.portfolio;
+    const saveable = Boolean(loaded && loaded.symbols);
+    $('#book-form').hidden = !saveable;
+    $('#book-hint').textContent = saveable
+      ? t('Saves the symbols, the weights, the currency and the history. Opening one loads fresh prices.')
+      : t('Load prices by symbol above, set the weights, and the portfolio can be saved here.');
+    $('#book-empty').hidden = state.book.length > 0;
+    const list = $('#book');
+    list.replaceChildren();
+    for (const item of state.book) {
+      const meta = [item.symbols.join(', '), item.base ? t('in {currency}', { currency: item.base }) : '', item.updated_at.slice(0, 10)].filter(Boolean).join(' · ');
+      list.appendChild(
+        element('li', { attributes: { 'data-id': item.id } }, [
+          element('span', { className: 'name', text: item.name }),
+          element('span', { className: 'meta', text: meta }),
+          element('div', { className: 'buttons' }, [
+            element('button', { className: 'button', text: t('Load'), attributes: { type: 'button', 'data-action': 'open', 'aria-label': t('Load {name}', { name: item.name }) } }),
+            element('button', { className: 'button danger', text: t('Delete'), attributes: { type: 'button', 'data-action': 'delete', 'aria-label': t('Delete {name}', { name: item.name }) } }),
+          ]),
+        ]),
+      );
+    }
+  }
+
+  async function loadBook() {
+    try {
+      state.book = await api.listBook();
+      updateBook();
+    } catch (error) {
+      fail(error);
+    }
+  }
+
+  async function saveBook(event) {
+    event.preventDefault();
+    const loaded = state.datasets.portfolio;
+    const name = $('#book-name').value.trim();
+    if (!loaded || !loaded.symbols || !name) return;
+    const weights = readWeights();
+    if (Object.values(weights).some((v) => !Number.isFinite(v))) {
+      setStatus(t('Every weight must be a number.'), true);
+      return;
+    }
+    try {
+      await api.saveBook({ name, symbols: loaded.symbols, weights, base: loaded.base, years: loaded.years });
+      state.book = await api.listBook();
+      updateBook();
+      setStatus(t('Portfolio “{name}” saved.', { name }));
+    } catch (error) {
+      fail(error);
+    }
+  }
+
+  async function openBook(id) {
+    try {
+      const { name, definition } = await api.openBook(id);
+      if (state.mode !== 'portfolio') await switchMode('portfolio');
+      $('#symbols').value = definition.symbols.join(', ');
+      const base = $('#market-base');
+      if (definition.base && ![...base.options].some((option) => option.value === definition.base)) {
+        base.appendChild(element('option', { text: t('Convert to {currency}', { currency: definition.base }), attributes: { value: definition.base } }));
+      }
+      base.value = definition.base || '';
+      $('#market-history').value = definition.years ? String(definition.years) : 'all';
+      $('#book-name').value = name;
+      await loadMarket({ weights: definition.weights });
+    } catch (error) {
+      fail(error);
+    }
+  }
+
+  async function removeBook(id) {
+    const item = state.book.find((p) => p.id === id);
+    if (!item || !window.confirm(t('Delete “{name}”?', { name: item.name }))) return;
+    try {
+      await api.deleteBook(id);
+      state.book = state.book.filter((p) => p.id !== id);
+      updateBook();
     } catch (error) {
       fail(error);
     }
@@ -1598,6 +1702,7 @@
     updateCompareControls();
     $('#compare-panel').hidden = true;
     renderHistory();
+    updateBook();
     setStatus('');
     if (state.result) render(state.result);
   }
@@ -1634,6 +1739,7 @@
     if (!api.staticMode) {
       $('#history-panel').hidden = false;
       await loadHistory();
+      if (state.marketSource) await loadBook();
     }
     if (!state.dataset) await chooseScenario(chosenScenario());
     else await run();
@@ -1767,6 +1873,14 @@
       if (!button || !state.dataset) return;
       state.dataset.scenarios = readScenarios().filter((scenario, i) => i !== Number(button.dataset.remove));
       scheduleRun(0);
+    });
+    $('#book-form').addEventListener('submit', saveBook);
+    $('#book').addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-action]');
+      if (!button) return;
+      const id = button.closest('li').dataset.id;
+      if (button.dataset.action === 'open') openBook(id);
+      else removeBook(id);
     });
     $('#compare').addEventListener('click', compareSelected);
     $('#compare-close').addEventListener('click', () => {
