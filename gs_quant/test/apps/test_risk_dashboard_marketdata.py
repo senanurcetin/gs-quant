@@ -44,12 +44,13 @@ def stooq_csv(values, dates=DATES) -> str:
     return '\n'.join(rows) + '\n'
 
 
-def yahoo_json(values, dates=DATES, zone='Europe/Istanbul', adjusted=True, error=None) -> str:
+def yahoo_json(values, dates=DATES, zone='Europe/Istanbul', adjusted=True, error=None, currency=None) -> str:
     stamps = [int(pd.Timestamp(d, tz=zone).replace(hour=10).timestamp()) for d in dates]
     indicators = {'quote': [{'close': [None if v is None else v * 2 for v in values]}]}
     if adjusted:
         indicators['adjclose'] = [{'adjclose': list(values)}]
-    result = {'meta': {'exchangeTimezoneName': zone}, 'timestamp': stamps, 'indicators': indicators}
+    meta = {'exchangeTimezoneName': zone, **({'currency': currency} if currency else {})}
+    result = {'meta': meta, 'timestamp': stamps, 'indicators': indicators}
     return json.dumps({'chart': {'result': None if error else [result], 'error': error}})
 
 
@@ -460,3 +461,197 @@ class TestCheck:
     def test_defaults_name_each_providers_own_spelling(self):
         assert marketdata.DEFAULT_CHECK_SYMBOLS == {'stooq': 'aapl.us', 'yahoo': 'AAPL'}
         assert set(marketdata.DEFAULT_CHECK_SYMBOLS) == set(marketdata.FETCHERS)
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# Currencies
+# ----------------------------------------------------------------------------------------------------------------------
+
+
+def fx_service(quotes: dict, calls=None) -> MarketData:
+    """Yahoo, answering from memory: symbol -> (currency, prices, dates)"""
+    from urllib.parse import unquote
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        symbol = unquote(request.url.path.rsplit('/', 1)[-1])
+        if calls is not None:
+            calls.append(symbol)
+        if symbol not in quotes:
+            return httpx.Response(404)
+        currency, values, dates = quotes[symbol]
+        return httpx.Response(200, text=yahoo_json(values, dates, currency=currency))
+
+    return MarketData('yahoo', client_for(handler))
+
+
+class TestCurrency:
+    @pytest.fixture
+    def quotes(self):
+        usdtry = 30 + np.arange(len(DATES)) * 0.05
+        return {
+            'AAPL': ('USD', prices_for(1), DATES),
+            'THYAO.IS': ('TRY', prices_for(2) * 3, DATES),
+            'USDTRY=X': ('TRY', usdtry, DATES),
+            'SAP.DE': ('EUR', prices_for(3), DATES),
+            'EURUSD=X': ('USD', 1.1 + np.arange(len(DATES)) * 0.001, DATES),
+        }
+
+    def test_mixed_currencies_are_converted_to_the_first_symbols_currency(self, quotes):
+        result = fx_service(quotes).prices(['THYAO.IS', 'AAPL'])
+
+        assert result['base'] == 'TRY' and result['currencies'] == {'THYAO.IS': 'TRY', 'AAPL': 'USD'}
+        assert result['prices']['THYAO.IS'] == pytest.approx(list(prices_for(2) * 3), abs=1e-4)
+        expected = prices_for(1) * (30 + np.arange(len(DATES)) * 0.05)
+        assert result['prices']['AAPL'] == pytest.approx(list(expected), rel=1e-6)
+        assert list(result['converted']) == ['AAPL'] and result['converted']['AAPL']['rate'] == 'USDTRY=X'
+        assert any('different currencies' in n for n in result['notes'])
+        assert any('USDTRY=X' in n for n in result['notes'])
+
+    def test_an_explicit_base_wins_and_converts_every_other_currency(self, quotes):
+        result = fx_service(quotes).prices(['THYAO.IS', 'AAPL'], base='usd')
+
+        assert result['base'] == 'USD' and list(result['converted']) == ['THYAO.IS']
+        expected = (
+            prices_for(2) * 3 / (30 + np.arange(len(DATES)) * 0.05)
+        )  # TRYUSD=X is not quoted: the inverse is used
+        assert result['prices']['THYAO.IS'] == pytest.approx(list(expected), rel=1e-6)
+        assert result['prices']['AAPL'] == pytest.approx(list(prices_for(1)), abs=1e-4)
+        assert result['converted']['THYAO.IS']['rate'] == 'USDTRY=X'
+
+    def test_the_direct_pair_is_preferred_to_the_inverse(self, quotes):
+        calls = []
+
+        fx_service(quotes, calls).prices(['SAP.DE', 'AAPL'], base='USD')
+
+        assert 'EURUSD=X' in calls and 'USDEUR=X' not in calls
+
+    def test_one_currency_needs_no_conversion_and_no_exchange_rate_request(self, quotes):
+        calls = []
+
+        result = fx_service(quotes, calls).prices(['AAPL'])
+
+        assert result['base'] is None and result['converted'] == {} and calls == ['AAPL']
+        assert result['notes'] == []
+
+    def test_a_single_symbol_is_converted_only_when_asked(self, quotes):
+        plain = fx_service(quotes).prices(['AAPL'])
+        converted = fx_service(quotes).prices(['AAPL'], base='TRY')
+
+        assert plain['base'] is None and converted['base'] == 'TRY'
+        assert converted['prices']['AAPL'][0] == pytest.approx(prices_for(1)[0] * 30, rel=1e-6)
+
+    def test_the_same_currency_as_the_base_is_left_alone(self, quotes):
+        result = fx_service(quotes).prices(['AAPL'], base='USD')
+
+        assert result['base'] == 'USD' and result['converted'] == {} and result['notes'] == []
+
+    def test_pence_are_turned_into_pounds_before_conversion(self, quotes):
+        quotes['VOD.L'] = ('GBp', prices_for(4) * 100, DATES)
+        quotes['GBPUSD=X'] = ('USD', np.full(len(DATES), 1.25), DATES)
+
+        result = fx_service(quotes).prices(['VOD.L'], base='USD')
+
+        assert result['prices']['VOD.L'] == pytest.approx(list(prices_for(4) * 1.25), rel=1e-6)
+        assert result['currencies']['VOD.L'] == 'GBP'
+
+    def test_pence_priced_assets_converted_to_pounds_need_no_exchange_rate(self, quotes):
+        quotes['VOD.L'] = ('GBX', prices_for(4) * 100, DATES)
+        calls = []
+
+        result = fx_service(quotes, calls).prices(['VOD.L'], base='GBP')
+
+        assert result['prices']['VOD.L'] == pytest.approx(list(prices_for(4)), rel=1e-6) and calls == ['VOD.L']
+
+    def test_a_rate_is_carried_over_a_holiday_but_not_a_long_gap(self, quotes):
+        rate_dates = DATES.delete([30, 31])  # two days without a rate
+        quotes['USDTRY=X'] = ('TRY', 30 + np.arange(len(rate_dates)) * 0.05, rate_dates)
+
+        result = fx_service(quotes).prices(['THYAO.IS', 'AAPL'])
+
+        assert len(result['dates']) == len(DATES)
+        first_gap = 30 + 29 * 0.05
+        assert result['prices']['AAPL'][30] == pytest.approx(prices_for(1)[30] * first_gap, rel=1e-6)
+        quotes['USDTRY=X'] = ('TRY', 30 + np.arange(len(DATES) - 10) * 0.05, DATES[10:])  # rates start ten days late
+        late = fx_service(quotes).prices(['THYAO.IS', 'AAPL'])
+        assert late['dates'][0] >= str(DATES[10].date())
+
+    def test_a_missing_exchange_rate_is_reported(self, quotes):
+        del quotes['USDTRY=X']
+
+        with pytest.raises(MarketDataError, match='No exchange rate between USD and TRY'):
+            fx_service(quotes).prices(['THYAO.IS', 'AAPL'])
+
+    def test_an_unreachable_rate_service_is_a_502_not_a_missing_rate(self, quotes):
+        def handler(request):
+            if 'USDTRY' in request.url.path or 'TRYUSD' in request.url.path:
+                return httpx.Response(503)
+            return httpx.Response(
+                200, text=yahoo_json(prices_for(1), currency='USD' if 'AAPL' in request.url.path else 'TRY')
+            )
+
+        with pytest.raises(MarketDataError) as error:
+            MarketData('yahoo', client_for(handler)).prices(['THYAO.IS', 'AAPL'])
+
+        assert error.value.status == 502
+
+    def test_an_unknown_currency_is_left_alone(self, quotes):
+        quotes['AAPL'] = (None, prices_for(1), DATES)
+
+        result = fx_service(quotes).prices(['THYAO.IS', 'AAPL'])
+
+        assert result['base'] is None and result['converted'] == {} and result['currencies']['AAPL'] is None
+
+    def test_a_base_that_is_not_a_currency_code_is_refused(self, quotes):
+        for bad in ('TL', 'TURKISH', '12$', 'US D'):
+            with pytest.raises(MarketDataError, match='not a currency code'):
+                fx_service(quotes).prices(['AAPL'], base=bad)
+
+    def test_stooq_cannot_convert(self):
+        with pytest.raises(MarketDataError, match='needs Yahoo Finance'):
+            stooq_service({'a': stooq_csv(prices_for(1))}).prices(['a'], base='TRY')
+
+    def test_returns_are_those_of_an_investor_in_the_base_currency(self, quotes):
+        """A flat dollar price still moves in lira when the lira weakens: that is the point of converting"""
+        quotes['AAPL'] = ('USD', np.full(len(DATES), 100.0), DATES)
+
+        result = fx_service(quotes).prices(['THYAO.IS', 'AAPL'])
+        returns = pd.Series(result['prices']['AAPL']).pct_change().dropna()
+
+        assert (returns > 0).all() and returns.iloc[0] == pytest.approx(0.05 / 30, rel=1e-6)
+
+
+class TestCurrencyApi:
+    @pytest.fixture
+    def client(self, tmp_path):
+        app = create_app(Settings(database=tmp_path / 'runs.db', market_data='yahoo'))
+        quotes = {
+            'AAPL': ('USD', prices_for(1), DATES),
+            'THYAO.IS': ('TRY', prices_for(2) * 3, DATES),
+            'USDTRY=X': ('TRY', 30 + np.arange(len(DATES)) * 0.05, DATES),
+        }
+        app.state.application.market = fx_service(quotes)
+        return TestClient(app)
+
+    def test_converted_prices_can_be_analysed_as_a_portfolio(self, client):
+        body = client.get('/api/market/prices?symbols=THYAO.IS,AAPL').json()
+
+        analysed = client.post(
+            '/api/portfolio', json={'assets': body['prices'], 'kind': 'prices', 'dates': body['dates'], 'window': 60}
+        )
+
+        assert body['base'] == 'TRY' and body['notes']
+        assert analysed.status_code == 200 and analysed.json()['summary']['observations'] == len(DATES) - 1
+
+    def test_the_base_currency_is_a_query_parameter(self, client):
+        usd = client.get('/api/market/prices?symbols=AAPL,THYAO.IS&base=USD').json()
+        try_ = client.get('/api/market/prices?symbols=AAPL,THYAO.IS&base=TRY').json()
+
+        assert usd['base'] == 'USD' and try_['base'] == 'TRY'
+        assert usd['prices']['AAPL'] != try_['prices']['AAPL']
+
+    def test_errors_are_reported_with_their_status(self, client):
+        bad = client.get('/api/market/prices?symbols=AAPL&base=dollars')
+        missing = client.get('/api/market/prices?symbols=AAPL&base=JPY')
+
+        assert bad.status_code == 422 and 'currency code' in bad.json()['error']
+        assert missing.status_code == 422 and 'No exchange rate between USD and JPY' in missing.json()['error']

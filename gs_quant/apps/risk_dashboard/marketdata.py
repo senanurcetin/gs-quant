@@ -148,9 +148,12 @@ def fetch_yahoo(client: httpx.Client, symbol: str) -> pd.Series:
             zone = dt.timezone.utc
         # a bar is stamped with the exchange's opening time: take its date in the exchange's own time zone
         dates = [pd.Timestamp(dt.datetime.fromtimestamp(t, zone).date()) for t in stamps]
-        return _clean_prices(dates, values, 'Yahoo Finance')
+        series = _clean_prices(dates, values, 'Yahoo Finance')
     except (KeyError, IndexError, TypeError, ValueError) as e:
         raise MarketDataError('Yahoo Finance answered in a format that was not understood', 502) from e
+    currency = result['meta'].get('currency') if isinstance(result.get('meta'), dict) else None
+    series.attrs['currency'] = currency if isinstance(currency, str) and currency else None
+    return series
 
 
 FETCHERS = {'stooq': fetch_stooq, 'yahoo': fetch_yahoo}
@@ -167,6 +170,31 @@ def parse_symbols(text: str) -> list[str]:
     if len({s.upper() for s in symbols}) != len(symbols):
         raise MarketDataError('Each symbol can be given once')
     return symbols
+
+
+CURRENCY = re.compile(r'^[A-Za-z]{3}$')
+# prices quoted in a minor unit: the currency they belong to and the factor that turns them into that currency
+MINOR_UNITS = {
+    'GBp': ('GBP', 0.01),
+    'GBX': ('GBP', 0.01),
+    'ZAc': ('ZAR', 0.01),
+    'ZAC': ('ZAR', 0.01),
+    'ILA': ('ILS', 0.01),
+}
+FX_FILL_DAYS = 5  # an exchange rate is carried over holidays, but not over a longer gap
+
+
+def parse_currency(text: Optional[str]) -> Optional[str]:
+    if not text:
+        return None
+    if not CURRENCY.match(text.strip()):
+        raise MarketDataError(f'"{text[:10]}" is not a currency code such as USD or TRY')
+    return text.strip().upper()
+
+
+def _unit(currency: str) -> tuple[str, float]:
+    """The currency of a quote and the factor that converts it to major units (pence to pounds)"""
+    return MINOR_UNITS.get(currency, (currency.upper(), 1.0))
 
 
 class MarketData:
@@ -191,9 +219,69 @@ class MarketData:
             self._cache[key] = series
         return series
 
-    def prices(self, symbols: list[str], start: Optional[dt.date] = None, end: Optional[dt.date] = None) -> dict:
-        """Closing prices of the symbols on the dates all of them traded, the latest MAX_OBSERVATIONS of them"""
-        frame = pd.concat({s.upper(): self._series(s) for s in symbols}, axis=1, join='inner')
+    def _rate(self, currency: str, base: str) -> tuple[pd.Series, str]:
+        """The price of one unit of the currency in the base currency, and the Yahoo symbol it came from"""
+        direct = f'{currency}{base}=X'
+        try:
+            return self._series(direct), direct
+        except MarketDataError as e:
+            if e.status != 422:
+                raise
+        inverse = f'{base}{currency}=X'
+        try:
+            return 1 / self._series(inverse), inverse
+        except MarketDataError as e:
+            if e.status != 422:
+                raise
+        raise MarketDataError(f'No exchange rate between {currency} and {base} is available') from None
+
+    def _convert(self, series: pd.Series, base: str) -> tuple[pd.Series, Optional[dict]]:
+        """The prices in the base currency; unchanged, and None, if they are already in it or their currency is unknown"""
+        quoted = series.attrs.get('currency')
+        if not quoted:
+            return series, None
+        currency, factor = _unit(quoted)
+        if currency == base and factor == 1.0:
+            return series, None
+        if currency == base:
+            return series * factor, {'from': quoted, 'rate': None}
+        rate, symbol = self._rate(currency, base)
+        dates = series.index
+        aligned = rate.reindex(rate.index.union(dates)).ffill(limit=FX_FILL_DAYS).reindex(dates)
+        converted = (series * factor * aligned).dropna()
+        if converted.empty:
+            raise MarketDataError(f'The {currency}/{base} exchange rate does not cover the dates of these prices')
+        return converted, {'from': quoted, 'rate': symbol}
+
+    def prices(
+        self,
+        symbols: list[str],
+        start: Optional[dt.date] = None,
+        end: Optional[dt.date] = None,
+        base: Optional[str] = None,
+    ) -> dict:
+        """Closing prices of the symbols on the dates all of them traded, the latest MAX_OBSERVATIONS of them
+
+        Symbols quoted in different currencies are converted into one, because the returns of a portfolio must be in a
+        single currency: the base currency if one is given, else the currency of the first symbol. A single symbol is
+        converted only if a base is given. Conversion needs the currency of each quote, which only Yahoo Finance gives.
+        """
+        base = parse_currency(base)
+        series = {s.upper(): self._series(s) for s in symbols}
+        currencies = {name: _unit(c)[0] if (c := ser.attrs.get('currency')) else None for name, ser in series.items()}
+        notes: list[str] = []
+        if base is None and len({c for c in currencies.values() if c}) > 1:
+            base = next(c for c in currencies.values() if c)
+            notes.append(f'The assets are quoted in different currencies, so prices were converted to {base}')
+        converted: dict[str, dict] = {}
+        if base is not None:
+            if self.provider != 'yahoo':
+                raise MarketDataError(f'Converting to another currency needs Yahoo Finance, not {self.label}')
+            for name in series:
+                series[name], how = self._convert(series[name], base)
+                if how:
+                    converted[name] = how
+        frame = pd.concat(series, axis=1, join='inner')
         if start is not None:
             frame = frame[frame.index >= pd.Timestamp(start)]
         if end is not None:
@@ -203,11 +291,20 @@ class MarketData:
             raise MarketDataError(
                 f'Only {len(frame)} dates have prices for all of {", ".join(frame.columns)}; at least {MIN_PRICES} are needed'
             )
+        if converted:
+            rates = sorted({how['rate'] for how in converted.values() if how['rate']})
+            notes.append(
+                f'Prices are in {base}' + (f', converted at the daily rate of {", ".join(rates)}' if rates else '')
+            )
         return {
             'source': self.label,
             'symbols': list(frame.columns),
             'dates': [str(d.date()) for d in frame.index],
             'prices': {s: [round(float(v), 6) for v in frame[s]] for s in frame.columns},
+            'currencies': {name: currencies[name] for name in frame.columns},
+            'base': base,
+            'converted': converted,
+            'notes': notes,
         }
 
 

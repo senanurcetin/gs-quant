@@ -35,6 +35,13 @@ reason a freshly installed command is "not recognized" on Windows. It listens on
   `THYAO.IS` for Borsa Istanbul). Daily closes adjusted for splits and dividends, up to ten years. Prices are cached for
   15 minutes, aligned on the dates all symbols traded, and analysed like an upload. A throttled request (429) is repeated
   once. Provider calls go to a fixed host with a size limit, a timeout and no redirects; symbols are validated first.
+  **Currencies**: a portfolio's returns must be in one currency, so symbols quoted in different currencies (`THYAO.IS` in
+  TRY, `AAPL` in USD) are converted at Yahoo's daily exchange rate (e.g. `USDTRY=X`, or the inverse pair; the last rate
+  is carried over holidays for up to five days) into the currency you pick, or by default into the first symbol's. The
+  converted returns are those of an investor holding in that currency, exchange rate moves included. Pence-quoted
+  prices (`GBp`, London) are turned into pounds first. `base=TRY` on the API does the same. The conversion is stated in
+  the notes of the analysis. Not covered: holiday calendars differ between markets, so only dates on which every symbol
+  traded are used.
   Daily closes only: there are no intraday or real-time prices. Switch it off with `RISK_APP_MARKET_DATA=off`.
 - **Stress**: the worst 1, 5 and 20 consecutive periods that actually occurred in the data, with their dates, how many
   times the VaR the worst period was and, for a portfolio, what each asset did over the same dates.
@@ -100,6 +107,7 @@ The image runs as an unprivileged user, keeps the saved analyses in the `/data` 
 ```bash
 python -m gs_quant.apps.risk_dashboard check-data                      # both providers, AAPL
 python -m gs_quant.apps.risk_dashboard check-data --provider yahoo --symbol THYAO.IS
+python -m gs_quant.apps.risk_dashboard check-data --provider yahoo --symbol USDTRY=X     # an exchange rate
 ```
 
 fetches one symbol from the real service and prints what came back (number of daily closes, first and last date, last
@@ -116,7 +124,7 @@ prices are not covered, both sources being used for daily closes.
 | Endpoint | |
 | --- | --- |
 | `GET /api/config` | Limits, and whether a token is needed |
-| `GET /api/market/prices?symbols=a,b&start=` | Closing prices by symbol from the configured provider (404 when none is configured); the answer can be sent as `prices` to `/api/analyze` or `/api/portfolio` |
+| `GET /api/market/prices?symbols=a,b&start=&base=` | Closing prices by symbol from the configured provider (404 when none is configured); the answer can be sent as `prices` to `/api/analyze` or `/api/portfolio` |
 | `GET /api/scenarios`, `GET /api/sample?scenario=&n=&seed=` | The sample scenarios and their simulated returns |
 | `POST /api/analyze` | Body: `returns` or `prices`, optional `dates`, `confidence` (0.8 to 0.999), `method` (`historical`, `parametric`, `cornish_fisher`), `window`, `minimum_acceptable_return`, `periods_per_year`. At most 5,000 observations. |
 | `POST /api/portfolio` | Body: `assets` (name to values), `kind` (`returns` or `prices`), optional `weights` (name to weight, equal weights if omitted, scaled to sum to 1) and the same settings. Answers like `/api/analyze` plus a `portfolio` section. |

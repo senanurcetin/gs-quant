@@ -274,7 +274,7 @@ class Application:
         except ValueError:
             return _error(422, 'Dates must be YYYY-MM-DD')
         try:
-            return JSONResponse(await run_in_threadpool(self.market.prices, symbols, start, end))
+            return JSONResponse(await run_in_threadpool(self.market.prices, symbols, start, end, params.get('base')))
         except marketdata.MarketDataError as e:
             logger.warning('Market data request failed: %s', e)
             return _error(e.status, str(e))
