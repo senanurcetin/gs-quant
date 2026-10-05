@@ -28,7 +28,8 @@ or, from a checkout, `python -m gs_quant.apps.risk_dashboard`. It listens on `12
   times the VaR the worst period was and, for a portfolio, what each asset did over the same dates.
 - **Saved analyses**: name an analysis and it is kept in a SQLite file. Opening it recomputes it, so it always reflects
   the current model code. Each one can be downloaded as a **report**: one HTML file with its charts and numbers that opens
-  without a server, offline.
+  without a server, offline. Tick two to four saved analyses to compare them side by side (for instance a portfolio before
+  and after a change of weights).
 - **Charts**: growth and drawdown, daily returns against the VaR forecast with the breaches highlighted, the distribution
   with the normal fit and a QQ plot of the tails. Download the calculated series as CSV.
 
@@ -90,6 +91,7 @@ The image runs as an unprivileged user, keeps the saved analyses in the `/data` 
 | `POST /api/analyze` | Body: `returns` or `prices`, optional `dates`, `confidence` (0.8 to 0.999), `method` (`historical`, `parametric`, `cornish_fisher`), `window`, `minimum_acceptable_return`, `periods_per_year`. At most 5,000 observations. |
 | `POST /api/portfolio` | Body: `assets` (name to values), `kind` (`returns` or `prices`), optional `weights` (name to weight, equal weights if omitted, scaled to sum to 1) and the same settings. Answers like `/api/analyze` plus a `portfolio` section. |
 | `GET /api/runs`, `POST /api/runs` | List the saved analyses; save one: `{name, kind: "single" or "portfolio", request}`, where `request` is the body of the matching analysis endpoint. The request is analysed first, so only valid ones are stored. |
+| `GET /api/runs/compare?ids=a,b,c` | The headline figures of two to four saved analyses, recomputed, in the order asked for |
 | `GET /api/runs/{id}`, `DELETE /api/runs/{id}` | Open (recomputed) or delete a saved analysis |
 | `GET /api/runs/{id}/report` | The stand-alone HTML report, as a download |
 

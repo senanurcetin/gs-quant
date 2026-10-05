@@ -115,6 +115,7 @@
         ...jsonBody({ name, kind: dataset.portfolio ? 'portfolio' : 'single', request: requestBody(dataset, settings) }),
       }),
     openRun: (id) => requestJson(`/api/runs/${id}`),
+    compareRuns: (ids) => requestJson(`/api/runs/compare?ids=${ids.join(',')}`),
     deleteRun: (id) => requestJson(`/api/runs/${id}`, { method: 'DELETE' }),
     async reportBlob(id) {
       return (await request(`/api/runs/${id}/report`)).blob();
@@ -1072,6 +1073,7 @@
     timer: null,
     savedRun: null,
     runs: [],
+    compare: new Set(),
     limits: { assets: 10 },
     scenarios: [],
     started: false,
@@ -1247,6 +1249,8 @@
     const list = $('#history');
     list.replaceChildren();
     $('#history-empty').hidden = state.runs.length > 0;
+    for (const id of [...state.compare]) if (!state.runs.some((r) => r.id === id)) state.compare.delete(id);
+    $('#compare-bar').hidden = state.runs.length < 2;
     for (const item of state.runs) {
       const current = state.savedRun && state.savedRun.id === item.id;
       const h = item.headline || {};
@@ -1261,13 +1265,70 @@
         element('button', { className: 'button', text: 'Report', attributes: { type: 'button', 'data-action': 'report', 'aria-label': `Download the report of ${item.name}` } }),
         element('button', { className: 'button danger', text: 'Delete', attributes: { type: 'button', 'data-action': 'delete', 'aria-label': `Delete ${item.name}` } }),
       ]);
-      list.appendChild(
-        element('li', { className: current ? 'current' : '', attributes: { 'data-id': item.id } }, [
-          element('span', { className: 'name', text: item.name }),
+      const row = element('li', { className: current ? 'current' : '', attributes: { 'data-id': item.id } }, [
+          element('label', { className: 'name' }, [
+            element('input', { attributes: { type: 'checkbox', 'data-compare': item.id, 'aria-label': `Compare ${item.name}` } }),
+            element('span', { text: item.name }),
+          ]),
           element('span', { className: 'meta', text: meta }),
           buttons,
-        ]),
-      );
+      ]);
+      row.querySelector('input[data-compare]').checked = state.compare.has(item.id);
+      list.appendChild(row);
+    }
+    updateCompareControls();
+  }
+
+  // ---- comparing saved analyses
+
+  const COMPARE_ROWS = [
+    ['Type', (r) => KIND_LABEL[r.kind] || r.kind],
+    ['Saved', (r) => r.created_at.slice(0, 10)],
+    ['Confidence', (r) => confidenceLabel(r.metrics.confidence)],
+    ['Method', (r) => METHOD_NAMES[r.metrics.method] || r.metrics.method],
+    ['Observations', (r) => integer(r.metrics.observations)],
+    ['Annualized return', (r) => pct(r.metrics.annualized_return)],
+    ['Annualized volatility', (r) => pct(r.metrics.volatility)],
+    ['Value at risk', (r) => pct(r.metrics.var)],
+    ['Expected shortfall', (r) => pct(r.metrics.expected_shortfall)],
+    ['Maximum drawdown', (r) => pct(r.metrics.max_drawdown)],
+    ['Worst period', (r) => pct(r.metrics.worst_period)],
+    ['Sortino ratio', (r) => num(r.metrics.sortino_ratio)],
+    ['Calmar ratio', (r) => num(r.metrics.calmar_ratio)],
+    ['Diversification ratio', (r) => num(r.metrics.diversification_ratio)],
+    ['Breaches (expected)', (r) => `${r.metrics.exceedances} (${num(r.metrics.expected_exceedances, 1)})`],
+    ['Kupiec p-value', (r) => (isNumber(r.metrics.kupiec_p_value) ? pValue(r.metrics.kupiec_p_value) : DASH)],
+    ['Basel traffic light', (r) => r.metrics.zone[0].toUpperCase() + r.metrics.zone.slice(1)],
+  ];
+
+  function updateCompareControls() {
+    const count = state.compare.size;
+    $('#compare').disabled = count < 2 || count > 4;
+    $('#compare-hint').textContent =
+      count < 2 ? 'Tick two to four analyses to compare them side by side.' : count > 4 ? 'Compare at most four at a time.' : `${count} selected.`;
+  }
+
+  async function compareSelected() {
+    const ids = state.runs.filter((r) => state.compare.has(r.id)).map((r) => r.id);
+    setStatus('Comparing…');
+    try {
+      const { runs } = await api.compareRuns(ids);
+      const table = $('#table-compare');
+      table.replaceChildren();
+      const heads = [element('td'), ...runs.map((r) => element('th', { text: r.name, attributes: { scope: 'col' } }))];
+      table.appendChild(element('thead', {}, [element('tr', {}, heads)]));
+      const body = element('tbody');
+      for (const [label, format] of COMPARE_ROWS) {
+        body.appendChild(element('tr', {}, [element('th', { text: label, attributes: { scope: 'row' } }), ...runs.map((r) => element('td', { text: format(r) }))]));
+      }
+      table.appendChild(body);
+      const panel = $('#compare-panel');
+      panel.hidden = false;
+      setStatus('');
+      panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      panel.focus();
+    } catch (error) {
+      fail(error);
     }
   }
 
@@ -1490,6 +1551,17 @@
     // saved runs
     $('#save-form').addEventListener('submit', saveRun);
     $('#report').addEventListener('click', () => state.savedRun && downloadReport(state.savedRun.id));
+    $('#compare').addEventListener('click', compareSelected);
+    $('#compare-close').addEventListener('click', () => {
+      $('#compare-panel').hidden = true;
+    });
+    $('#history').addEventListener('change', (event) => {
+      const box = event.target.closest('input[data-compare]');
+      if (!box) return;
+      if (box.checked) state.compare.add(box.dataset.compare);
+      else state.compare.delete(box.dataset.compare);
+      updateCompareControls();
+    });
     $('#history').addEventListener('click', (event) => {
       const button = event.target.closest('button[data-action]');
       if (!button) return;

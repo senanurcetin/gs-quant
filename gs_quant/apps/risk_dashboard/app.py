@@ -42,6 +42,7 @@ logger = logging.getLogger('gs_quant.apps.risk_dashboard')
 STATIC_DIR = Path(__file__).parent / 'static'
 MAX_BODY_BYTES = Settings().max_body_bytes
 MAX_NAME_LENGTH = 120
+MIN_COMPARE, MAX_COMPARE = 2, 4
 PUBLIC_API_PATHS = ('/api/health', '/api/ready')
 REQUEST_ID = re.compile(r'^[A-Za-z0-9_.-]{1,64}$')
 RUN_ID = re.compile(r'^[0-9a-f]{32}$')
@@ -317,6 +318,26 @@ class Application:
         meta = {k: stored[k] for k in ('id', 'name', 'kind', 'created_at', 'headline')}
         return JSONResponse({'run': meta, 'request': stored['request'], 'result': result})
 
+    async def compare_runs(self, request: Request) -> Response:
+        """The comparison figures of two to four saved runs, in the order asked for"""
+        ids = [i for i in request.query_params.get('ids', '').split(',') if i]
+        if not MIN_COMPARE <= len(ids) <= MAX_COMPARE or len(set(ids)) != len(ids):
+            return _error(422, f'Choose between {MIN_COMPARE} and {MAX_COMPARE} different saved analyses to compare')
+        if not all(RUN_ID.match(i) for i in ids):
+            return _error(404, 'There is no such run')
+        compared = []
+        for run_id in ids:
+            stored = await run_in_threadpool(self.store.get, run_id)
+            if stored is None:
+                return _error(404, 'There is no such run')
+            try:
+                result = await self._recompute(stored)
+            except analysis.AnalysisError as e:
+                return _error(409, f'The saved run "{stored["name"]}" can no longer be analysed: {e}')
+            meta = {k: stored[k] for k in ('id', 'name', 'kind', 'created_at')}
+            compared.append({**meta, 'metrics': analysis.comparison_metrics(result)})
+        return JSONResponse({'runs': compared})
+
     async def delete_run(self, request: Request) -> Response:
         run_id = request.path_params['run_id']
         deleted = RUN_ID.match(run_id) and await run_in_threadpool(self.store.delete, run_id)
@@ -429,6 +450,7 @@ def create_app(settings: Optional[Settings] = None) -> Starlette:
         Route('/api/portfolio', handlers.analyze_portfolio, methods=['POST']),
         Route('/api/runs', handlers.list_runs, methods=['GET']),
         Route('/api/runs', handlers.create_run, methods=['POST']),
+        Route('/api/runs/compare', handlers.compare_runs, methods=['GET']),
         Route('/api/runs/{run_id}', handlers.get_run, methods=['GET']),
         Route('/api/runs/{run_id}', handlers.delete_run, methods=['DELETE']),
         Route('/api/runs/{run_id}/report', handlers.run_report, methods=['GET']),
