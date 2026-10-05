@@ -242,3 +242,48 @@ class TestDemoWorkflow:
         steps = '\n'.join(s.get('run', '') for s in self.load()['jobs']['build']['steps'])
 
         assert 'gs_quant.apps.risk_dashboard export -o site/index.html' in steps
+
+
+class TestMaintenance:
+    def workflows(self):
+        return sorted((ROOT / '.github' / 'workflows').glob('*.yml'))
+
+    def test_no_workflow_uses_an_action_that_runs_on_a_deprecated_runtime(self):
+        text = {w.name: w.read_text(encoding='utf-8') for w in self.workflows()}
+
+        old = [
+            (name, ref)
+            for name, body in text.items()
+            for ref in re.findall(r'uses: (actions/(?:checkout|setup-python)@v\d+)', body)
+            if ref
+            in ('actions/checkout@v3', 'actions/checkout@v4', 'actions/setup-python@v3', 'actions/setup-python@v5')
+        ]
+        assert old == []
+
+    def test_dependabot_watches_the_actions_and_the_python_packages(self):
+        yaml = pytest.importorskip('yaml')
+        config = yaml.safe_load((ROOT / '.github' / 'dependabot.yml').read_text(encoding='utf-8'))
+
+        ecosystems = {u['package-ecosystem']: u for u in config['updates']}
+
+        assert set(ecosystems) == {'github-actions', 'pip'}
+        assert all(u['schedule']['interval'] == 'weekly' and u['directory'] == '/' for u in ecosystems.values())
+        assert all(u['open-pull-requests-limit'] <= 5 for u in ecosystems.values())  # a trickle, not a flood
+
+    def test_the_image_scan_informs_and_never_fails_the_build(self):
+        yaml = pytest.importorskip('yaml')
+        steps = yaml.safe_load((ROOT / '.github' / 'workflows' / 'ci.yml').read_text(encoding='utf-8'))['jobs'][
+            'docker'
+        ]['steps']
+
+        (scan,) = [s for s in steps if s.get('name', '').startswith('Scan the image')]
+
+        assert scan['continue-on-error'] is True and '--exit-code 0' in scan['run']
+
+    def test_the_browser_job_installs_the_accessibility_checker_and_requires_it(self):
+        yaml = pytest.importorskip('yaml')
+        job = yaml.safe_load((ROOT / '.github' / 'workflows' / 'ci.yml').read_text(encoding='utf-8'))['jobs']['browser']
+
+        installs = ' '.join(s.get('run', '') for s in job['steps'])
+
+        assert 'axe-playwright-python' in installs
