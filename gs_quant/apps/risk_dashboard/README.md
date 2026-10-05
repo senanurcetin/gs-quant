@@ -86,6 +86,20 @@ The image runs as an unprivileged user, keeps the saved analyses in the `/data` 
   logged with its traceback and the caller gets a JSON `500` that holds the request id and nothing else.
 - Saved analyses are the request only (compressed), so the database stays small; back it up by copying the file.
 
+### Checking the market data providers
+
+```bash
+gs-quant-risk check-data                      # both providers, AAPL
+gs-quant-risk check-data --provider yahoo --symbol THYAO.IS
+```
+
+fetches one symbol from the real service and prints what came back (number of daily closes, first and last date, last
+close), or why it failed. It exits with status 1 if any provider failed, so it also serves as a deployment check. Run it
+from the machine that will serve the application: a provider can answer from one network and refuse from another
+(Stooq in particular is known to drop connections from some data centres, and Yahoo answers 429 to clients that ask too
+often), so set `RISK_APP_MARKET_DATA` to a provider that passes. Intraday or real-time prices are not covered: both
+sources are used for daily closes.
+
 ## API
 
 | Endpoint | |

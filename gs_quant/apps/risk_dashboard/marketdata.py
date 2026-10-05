@@ -183,3 +183,31 @@ class MarketData:
 
 def make_market_data(provider: Optional[str], client: Optional[httpx.Client] = None) -> Optional[MarketData]:
     return MarketData(provider, client) if provider else None
+
+
+DEFAULT_CHECK_SYMBOLS = {'stooq': 'aapl.us', 'yahoo': 'AAPL'}
+
+
+def check(provider: str, symbol: Optional[str] = None, client: Optional[httpx.Client] = None) -> dict:
+    """Fetches one symbol from the real provider and reports what came back, for diagnosing a deployment
+
+    Never raises: the answer says whether the provider could be reached and read, and if not, why.
+    """
+    symbol = symbol or DEFAULT_CHECK_SYMBOLS[provider]
+    report = {'provider': LABELS[provider], 'symbol': symbol, 'ok': False}
+    try:
+        parse_symbols(symbol)
+        series = FETCHERS[provider](client or httpx.Client(follow_redirects=False), symbol)
+    except MarketDataError as e:
+        return {**report, 'error': str(e)}
+    except Exception as e:  # a bug or an unforeseen answer: report it rather than crash a diagnostic
+        return {**report, 'error': f'Unexpected {type(e).__name__}: {e}'}
+    return {
+        **report,
+        'ok': True,
+        'observations': len(series),
+        'first': str(series.index[0].date()),
+        'last': str(series.index[-1].date()),
+        'last_close': round(float(series.iloc[-1]), 4),
+        'enough_for_analysis': len(series) >= MIN_PRICES,
+    }

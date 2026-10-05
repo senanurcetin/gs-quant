@@ -52,6 +52,13 @@ def build_parser(settings: Settings) -> argparse.ArgumentParser:
         'delete saved analyses.',
     )
 
+    check = commands.add_parser(
+        'check-data',
+        help='Fetch one symbol from the real market data providers and report what came back (needs internet access)',
+    )
+    check.add_argument('--provider', choices=['stooq', 'yahoo', 'all'], default='all')
+    check.add_argument('--symbol', help='Symbol to fetch (default: AAPL, in each provider\'s spelling)')
+
     export = commands.add_parser('export', help='Write the dashboard as one self-contained HTML file')
     export.add_argument('-o', '--output', default='risk_dashboard.html', type=Path)
     export.add_argument('--observations', type=int, default=1000)
@@ -59,9 +66,30 @@ def build_parser(settings: Settings) -> argparse.ArgumentParser:
     return parser
 
 
+def check_data(provider: str, symbol: Optional[str]) -> int:
+    from . import marketdata
+    from .settings import PROVIDERS
+
+    failed = False
+    for name in PROVIDERS if provider == 'all' else (provider,):
+        result = marketdata.check(name, symbol)
+        if result['ok']:
+            print(
+                f'OK    {result["provider"]}: {result["symbol"]}, {result["observations"]} daily closes, '
+                f'{result["first"]} to {result["last"]}, last close {result["last_close"]}'
+                + ('' if result['enough_for_analysis'] else ' (too few for an analysis)')
+            )
+        else:
+            failed = True
+            print(f'FAIL  {result["provider"]}: {result["symbol"]}: {result["error"]}')
+    if failed:
+        print(f'To use a provider that works, set {ENV_PREFIX}MARKET_DATA to it (stooq or yahoo).')
+    return 1 if failed else 0
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    if not argv or argv[0] not in ('serve', 'export', '-h', '--help'):
+    if not argv or argv[0] not in ('serve', 'export', 'check-data', '-h', '--help'):
         argv.insert(0, 'serve')  # `python -m gs_quant.apps.risk_dashboard --port 9000` keeps working
     try:
         settings = Settings.from_env()
@@ -69,6 +97,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(f'error: {e}', file=sys.stderr)
         return 2
     args = build_parser(settings).parse_args(argv)
+
+    if args.command == 'check-data':
+        return check_data(args.provider, args.symbol)
 
     if args.command == 'export':
         from . import export

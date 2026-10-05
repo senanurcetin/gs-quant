@@ -375,3 +375,35 @@ class TestSettings:
         assert Settings.from_env({}).market_data is None
         with pytest.raises(ValueError, match='market_data'):
             Settings.from_env({'RISK_APP_MARKET_DATA': 'bloomberg'})
+
+
+class TestCheck:
+    def test_reports_what_a_working_provider_returned(self):
+        client = client_for(lambda request: httpx.Response(200, text=stooq_csv(prices_for(1))))
+
+        report = marketdata.check('stooq', client=client)
+
+        assert report['ok'] and report['symbol'] == 'aapl.us' and report['observations'] == len(DATES)
+        assert report['first'] == str(DATES[0].date()) and report['last'] == str(DATES[-1].date())
+        assert report['last_close'] == pytest.approx(prices_for(1)[-1], abs=1e-3) and report['enough_for_analysis']
+
+    def test_says_when_the_history_is_too_short(self):
+        client = client_for(lambda request: httpx.Response(200, text=stooq_csv(prices_for(1)[:30], DATES[:30])))
+
+        assert marketdata.check('stooq', client=client)['enough_for_analysis'] is False
+
+    def test_reports_failures_instead_of_raising(self):
+        def refuse(request):
+            raise httpx.ConnectError('blocked')
+
+        refused = marketdata.check('yahoo', 'AAPL', client_for(refuse))
+        forbidden = marketdata.check('stooq', client=client_for(lambda r: httpx.Response(403)))
+        bad_symbol = marketdata.check('yahoo', '../x', client_for(refuse))
+
+        assert not refused['ok'] and 'Could not reach' in refused['error']
+        assert not forbidden['ok'] and 'status 403' in forbidden['error']
+        assert not bad_symbol['ok'] and 'not a valid symbol' in bad_symbol['error']
+
+    def test_defaults_name_each_providers_own_spelling(self):
+        assert marketdata.DEFAULT_CHECK_SYMBOLS == {'stooq': 'aapl.us', 'yahoo': 'AAPL'}
+        assert set(marketdata.DEFAULT_CHECK_SYMBOLS) == set(marketdata.FETCHERS)
