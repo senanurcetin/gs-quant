@@ -141,9 +141,11 @@ class TestRunStore:
 
     def test_stored_requests_are_compressed(self, tmp_path):
         store = RunStore(tmp_path / 'runs.db')
+        empty = (tmp_path / 'runs.db').stat().st_size  # the tables and their pages, before any run
+
         store.add('x', 'single', {'returns': [0.0123] * 5000}, {})
 
-        assert (tmp_path / 'runs.db').stat().st_size < 5000 * 7
+        assert (tmp_path / 'runs.db').stat().st_size - empty < 5000 * 7  # written out, the values alone take about that
 
 
 # ----------------------------------------------------------------------------------------------------------------------

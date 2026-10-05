@@ -50,6 +50,12 @@ reason a freshly installed command is "not recognized" on Windows. It listens on
   prices (`GBp`, London) are turned into pounds first. `base=TRY` on the API does the same. The conversion is stated in
   the notes of the analysis. Not covered: holiday calendars differ between markets, so only dates on which every symbol
   traded are used.
+  **Saved copies**: the latest prices of every symbol fetched are also kept in the database (the `prices` table, at most 300
+  symbols, the least recently fetched dropped first). If the provider cannot be reached (a timeout, a 429 or 5xx, not an
+  unknown symbol) the saved copy is used instead, for the next minute at a time so a provider that is down is not asked at
+  every request, and the page says so in the notes of the analysis, with the date of the copy: *Prices of AAPL come from
+  the copy saved on 2026-10-05 because Yahoo Finance could not be reached: they may be out of date*. A copy is never used
+  for a symbol the provider says it does not know. `/api/market/prices` lists them under `stale`.
   Daily closes only: there are no intraday or real-time prices. Switch it off with `RISK_APP_MARKET_DATA=off`.
 - **Horizon**: the *Horizon* setting (1 to 60 periods) adds the multi-period VaR and expected shortfall to the headline.
   They are the one-period figures times the square root of the horizon, capped at a loss of 100%. That rule is an

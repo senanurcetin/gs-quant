@@ -14,9 +14,11 @@ specific language governing permissions and limitations
 under the License.
 """
 
+import contextvars
 import datetime as dt
 import io
 import json
+import logging
 import re
 import threading
 import time
@@ -32,6 +34,8 @@ from cachetools import TTLCache
 from . import analysis
 from .settings import PROVIDERS
 
+logger = logging.getLogger('gs_quant.apps.risk_dashboard')
+
 SYMBOL = re.compile(r'^[A-Za-z0-9^][A-Za-z0-9.^_=-]{0,19}$')
 MAX_SYMBOLS = 11  # ten assets and a benchmark
 MAX_RESPONSE_BYTES = 5_000_000
@@ -39,6 +43,7 @@ TIMEOUT_SECONDS = 10.0
 RETRY_STATUSES = (429, 500, 502, 503, 504)
 RETRY_DELAY_SECONDS = 1.5
 CACHE_SECONDS = 900
+STALE_CACHE_SECONDS = 60  # a provider that is down is not asked again at every request
 MIN_PRICES = 61  # sixty returns, the least the analysis accepts
 USER_AGENT = 'Mozilla/5.0 (compatible; gs-quant-risk)'
 
@@ -197,16 +202,27 @@ def _unit(currency: str) -> tuple[str, float]:
     return MINOR_UNITS.get(currency, (currency.upper(), 1.0))
 
 
-class MarketData:
-    """Daily prices from one provider, cached for a few minutes so a page reload does not become a new request"""
+# the symbols whose prices came from a saved copy, in the call of MarketData.prices that is running
+_stale: contextvars.ContextVar = contextvars.ContextVar('stale_prices', default=None)
 
-    def __init__(self, provider: str, client: Optional[httpx.Client] = None):
+
+class MarketData:
+    """Daily prices from one provider, cached for a few minutes so a page reload does not become a new request
+
+    With an archive (anything with save_prices(provider, symbol, series) and load_prices(provider, symbol)), the latest
+    prices of each symbol are also kept, and when the provider cannot be reached (not when it does not know the symbol)
+    the saved copy is used instead and said so, with its date.
+    """
+
+    def __init__(self, provider: str, client: Optional[httpx.Client] = None, archive=None):
         if provider not in FETCHERS:
             raise ValueError(f'Unknown market data provider {provider!r}, choose from {PROVIDERS}')
         self.provider = provider
         self.label = LABELS[provider]
         self._client = client or httpx.Client(follow_redirects=False)
+        self._archive = archive
         self._cache: TTLCache = TTLCache(maxsize=64, ttl=CACHE_SECONDS)
+        self._stale_cache: TTLCache = TTLCache(maxsize=64, ttl=STALE_CACHE_SECONDS)
         self._lock = threading.Lock()
 
     def _series(self, symbol: str) -> pd.Series:
@@ -214,9 +230,62 @@ class MarketData:
         with self._lock:
             if key in self._cache:
                 return self._cache[key]
-        series = FETCHERS[self.provider](self._client, symbol)
+            stale = self._stale_cache.get(key)
+        if stale is not None:
+            self._note_stale(key, stale.attrs['fetched_at'])
+            return stale
+        try:
+            series = FETCHERS[self.provider](self._client, symbol)
+        except MarketDataError as e:
+            if e.status != 502 or self._archive is None:  # an unknown symbol is not a reason to show old prices
+                raise
+            saved = self._saved(key)
+            if saved is None:
+                raise
+            logger.warning(
+                '%s: using the saved prices of %s from %s (%s)', self.label, key, saved.attrs['fetched_at'], e
+            )
+            with self._lock:
+                self._stale_cache[key] = saved
+            self._note_stale(key, saved.attrs['fetched_at'])
+            return saved
         with self._lock:
             self._cache[key] = series
+        self._save(key, series)
+        return series
+
+    @staticmethod
+    def _note_stale(symbol: str, fetched_at: str) -> None:
+        found = _stale.get()
+        if found is not None:
+            found[symbol] = fetched_at
+
+    def _save(self, key: str, series: pd.Series) -> None:
+        if self._archive is None:
+            return
+        payload = {
+            'currency': series.attrs.get('currency'),
+            'dates': [str(d.date()) for d in series.index],
+            'values': [float(v) for v in series],
+        }
+        try:
+            self._archive.save_prices(self.provider, key, payload)
+        except Exception as e:  # the copy is a convenience: failing to keep it must not fail the request
+            logger.warning('Could not save the prices of %s: %s', key, e)
+
+    def _saved(self, key: str) -> Optional[pd.Series]:
+        try:
+            found = self._archive.load_prices(self.provider, key)
+        except Exception as e:
+            logger.warning('Could not read the saved prices of %s: %s', key, e)
+            return None
+        if found is None:
+            return None
+        payload, fetched_at = found
+        series = pd.Series(payload['values'], index=pd.DatetimeIndex(pd.to_datetime(payload['dates'])), dtype=float)
+        if payload.get('currency'):
+            series.attrs['currency'] = payload['currency']
+        series.attrs['fetched_at'] = fetched_at
         return series
 
     def _rate(self, currency: str, base: str) -> tuple[pd.Series, str]:
@@ -267,6 +336,14 @@ class MarketData:
         converted only if a base is given. Conversion needs the currency of each quote, which only Yahoo Finance gives.
         """
         base = parse_currency(base)
+        found: dict = {}
+        token = _stale.set(found)
+        try:
+            return self._prices(symbols, start, end, base, found)
+        finally:
+            _stale.reset(token)
+
+    def _prices(self, symbols: list[str], start, end, base, found: dict) -> dict:
         series = {s.upper(): self._series(s) for s in symbols}
         currencies = {name: _unit(c)[0] if (c := ser.attrs.get('currency')) else None for name, ser in series.items()}
         notes: list[str] = []
@@ -296,6 +373,12 @@ class MarketData:
             notes.append(
                 f'Prices are in {base}' + (f', converted at the daily rate of {", ".join(rates)}' if rates else '')
             )
+        if found:
+            newest = max(found.values())[:10]
+            notes.append(
+                f'Prices of {", ".join(sorted(found))} come from the copy saved on {newest} because {self.label} '
+                'could not be reached: they may be out of date'
+            )
         return {
             'source': self.label,
             'symbols': list(frame.columns),
@@ -305,11 +388,14 @@ class MarketData:
             'base': base,
             'converted': converted,
             'notes': notes,
+            'stale': {name: when[:10] for name, when in sorted(found.items())},
         }
 
 
-def make_market_data(provider: Optional[str], client: Optional[httpx.Client] = None) -> Optional[MarketData]:
-    return MarketData(provider, client) if provider else None
+def make_market_data(
+    provider: Optional[str], client: Optional[httpx.Client] = None, archive=None
+) -> Optional[MarketData]:
+    return MarketData(provider, client, archive) if provider else None
 
 
 DEFAULT_CHECK_SYMBOLS = {'stooq': 'aapl.us', 'yahoo': 'AAPL'}

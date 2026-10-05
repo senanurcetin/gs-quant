@@ -47,7 +47,15 @@ CREATE TABLE IF NOT EXISTS portfolios (
     definition  TEXT NOT NULL
 )
 """
-
+SCHEMA_PRICES = """
+CREATE TABLE IF NOT EXISTS prices (
+    provider    TEXT NOT NULL,
+    symbol      TEXT NOT NULL,
+    fetched_at  TEXT NOT NULL,
+    series      BLOB NOT NULL,
+    PRIMARY KEY (provider, symbol)
+)
+"""
 
 # The database is versioned with SQLite's user_version. A change to the tables is a new entry here, never an edit of an old
 # one: a database is brought up one version at a time, whatever release created it. Version 0 is a new file, or one made
@@ -55,9 +63,11 @@ CREATE TABLE IF NOT EXISTS portfolios (
 MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
     (1, (SCHEMA, SCHEMA_INDEX)),
     (2, (SCHEMA_PORTFOLIOS,)),
+    (3, (SCHEMA_PRICES,)),
 )
 SCHEMA_VERSION = MIGRATIONS[-1][0]
 MIGRATION_ATTEMPTS = 100
+MAX_PRICE_SERIES = 300  # the saved copies of prices: the least recently fetched are dropped past this
 
 
 class StoreFull(Exception):
@@ -232,6 +242,33 @@ class RunStore:
     def delete_portfolio(self, portfolio_id: str) -> bool:
         with closing(self._connect()) as db, db:
             return db.execute('DELETE FROM portfolios WHERE id = ?', (portfolio_id,)).rowcount > 0
+
+    # ---- the last prices fetched from a provider: what is shown, with its date, when the provider cannot be reached
+
+    def save_prices(self, provider: str, symbol: str, series: dict) -> None:
+        """Keeps the latest series of a symbol ({'currency', 'dates', 'values'}), replacing the previous one"""
+        now = dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds')
+        blob = zlib.compress(json.dumps(series, separators=(',', ':')).encode('utf-8'))
+        with closing(self._connect()) as db, db:
+            db.execute(
+                'INSERT INTO prices (provider, symbol, fetched_at, series) VALUES (?, ?, ?, ?) '
+                'ON CONFLICT (provider, symbol) DO UPDATE SET fetched_at = excluded.fetched_at, series = excluded.series',
+                (provider, symbol, now, blob),
+            )
+            db.execute(
+                'DELETE FROM prices WHERE rowid NOT IN (SELECT rowid FROM prices ORDER BY fetched_at DESC, rowid DESC LIMIT ?)',
+                (MAX_PRICE_SERIES,),
+            )
+
+    def load_prices(self, provider: str, symbol: str) -> Optional[tuple[dict, str]]:
+        """The saved series of a symbol and when it was fetched (UTC, ISO format), or None"""
+        with closing(self._connect()) as db:
+            row = db.execute(
+                'SELECT fetched_at, series FROM prices WHERE provider = ? AND symbol = ?', (provider, symbol)
+            ).fetchone()
+        if row is None:
+            return None
+        return json.loads(zlib.decompress(row['series'])), row['fetched_at']
 
     def ping(self) -> None:
         with closing(self._connect()) as db:
