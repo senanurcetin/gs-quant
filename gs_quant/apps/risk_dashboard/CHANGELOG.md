@@ -5,6 +5,13 @@ release are the section of that version below, and are published with it.
 
 ## [Unreleased]
 
+### Fixed
+- The exported dashboard (`gs-quant-risk export`) stopped at start-up in a browser, because a listener was attached to a
+  form that the export removes. It now works, and a browser test opens it.
+
+### Added
+- A live demo on GitHub Pages: the exported dashboard with simulated data, rebuilt when the application changes.
+
 ## [0.1.0] - 2026-10-05
 
 First release.

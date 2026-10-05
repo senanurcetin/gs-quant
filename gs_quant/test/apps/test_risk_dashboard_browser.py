@@ -471,3 +471,38 @@ def test_horizon_filtered_estimate_and_benchmark(server, browser):
     page.click('#market-load')
     page.locator('#status.error').wait_for()
     assert problems == ['Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)']
+
+
+def test_the_static_export_works_in_a_browser(browser, tmp_path):
+    """The exported dashboard (gs-quant-risk export) is one file that needs no server: it is what a demo site serves"""
+    from gs_quant.apps.risk_dashboard import export
+
+    page_file = tmp_path / 'dashboard.html'
+    page_file.write_text(export.render(export.build_payload(n=400)), encoding='utf-8')
+    page = browser.new_context(locale='en-US').new_page()
+    problems = []
+    page.on('pageerror', lambda e: problems.append(str(e)))
+    page.on('console', lambda m: problems.append(m.text) if m.type in ('error', 'warning') else None)
+
+    page.goto(page_file.as_uri())
+    page.wait_for_selector('#results:not([hidden])')
+    page.wait_for_selector('#results:not(.loading)')
+    assert page.locator('#headline > div').count() == 4
+    first = page.inner_text('#headline')
+    for hidden in ('#mode-field', '#file-field', '#market-field', '#history-panel', '#book-panel', '#horizon-field'):
+        assert not page.is_visible(hidden), hidden
+
+    page.select_option('#scenario', 'regime_shift')
+    page.select_option('#method', 'parametric')
+    page.wait_for_selector('#results:not(.loading)')
+    assert page.inner_text('#headline') != first
+    assert page.locator('#chart-var svg').count() == 1 and page.locator('#table-ewma tbody tr').count() == 6
+    # the slider steps through the precomputed levels: the last one is 99%
+    page.eval_on_selector(
+        '#confidence', "el => { el.value = 3; el.dispatchEvent(new Event('input', { bubbles: true })); }"
+    )
+    page.locator('#headline').filter(has_text='99.0% value at risk').wait_for()
+
+    page.click('#lang')
+    page.locator('#glance-title').filter(has_text='Bir bakışta risk').wait_for()
+    assert problems == []

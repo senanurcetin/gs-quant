@@ -3,7 +3,7 @@
 A web application on top of [`gs_quant.timeseries.risk_metrics`](../../timeseries/risk_metrics.py): value at risk, expected
 shortfall and whether the VaR model can be trusted, for a simulated market, a CSV of your own returns or prices, or a
 **portfolio** of several assets. Analyses can be saved, reopened and exported as stand-alone reports. It needs no Marquee
-session.
+session. [Try the live demo](https://senanurcetin.github.io/gs-quant/) (simulated data, no server).
 
 The application is part of this repository and is not on PyPI (`pip install gs-quant` installs Goldman Sachs' original
 package, which does not have it). Install it from a checkout, in a virtual environment (Python 3.10 to 3.13):
@@ -250,6 +250,14 @@ writes a single HTML file, about 1 MB, that runs without a server. The results a
 advance for every scenario, method and a grid of confidence levels and embedded in the page: nothing is calculated in the
 browser, and a test checks that the embedded results equal what the backend returns. Uploading your own data needs the
 server.
+
+### Live demo
+
+The same file is published on GitHub Pages: **https://senanurcetin.github.io/gs-quant/**. It uses simulated data only (three
+sample scenarios, the confidence levels and methods of the export, English and Turkish) and does not store anything: it
+cannot load prices, take a CSV, save an analysis or analyse a portfolio, which need the server. It is rebuilt by
+`.github/workflows/pages.yml` when the application changes; for that to work, set *Settings, Pages, Source* to *GitHub
+Actions* once.
 
 ## Security notes
 
