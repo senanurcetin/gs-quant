@@ -436,6 +436,10 @@
       "Kıyasın gözlem sayısı varlıklarınkiyle aynı olmalı"
     ],
     [
+      "^Prices of (.+) come from the copy saved on (\\S+) because (.+) could not be reached: they may be out of date$",
+      "$1 fiyatları, $3 erişilemediği için $2 tarihinde kaydedilen kopyadan alındı: güncel olmayabilir"
+    ],
+    [
       "^Every asset needs the same number of observations$",
       "Her varlığın gözlem sayısı aynı olmalı"
     ],

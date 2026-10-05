@@ -291,13 +291,28 @@ async def read_body(request: Request, limit: int) -> bytes:
     return b''.join(chunks)
 
 
+class _PriceArchive:
+    """The saved copies of prices, in the store, which is opened only when a copy is first saved or read"""
+
+    def __init__(self, application: 'Application'):
+        self._application = application
+
+    def save_prices(self, provider: str, symbol: str, series: dict) -> None:
+        self._application.store.save_prices(provider, symbol, series)
+
+    def load_prices(self, provider: str, symbol: str):
+        return self._application.store.load_prices(provider, symbol)
+
+
 class Application:
     """The routes of the application, sharing its settings and the store of saved runs"""
 
     def __init__(self, settings: Settings):
         self.settings = settings
         self._store: Optional[RunStore] = None
-        self.market: Optional[marketdata.MarketData] = marketdata.make_market_data(settings.market_data)
+        self.market: Optional[marketdata.MarketData] = marketdata.make_market_data(
+            settings.market_data, archive=_PriceArchive(self)
+        )
 
     @property
     def store(self) -> RunStore:

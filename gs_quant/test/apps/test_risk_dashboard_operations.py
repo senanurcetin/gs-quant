@@ -387,7 +387,7 @@ class TestMigrations:
         store = RunStore(path)
 
         assert store.schema_version() == SCHEMA_VERSION + 1
-        assert (tmp_path / 'runs.db.bak-v2').exists()
+        assert (tmp_path / f'runs.db.bak-v{SCHEMA_VERSION}').exists()
         assert sqlite3.connect(path).execute("SELECT name FROM sqlite_master WHERE name = 'extra'").fetchone()
 
     def test_two_processes_starting_together_are_safe(self, tmp_path):
