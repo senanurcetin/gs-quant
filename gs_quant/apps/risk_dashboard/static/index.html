@@ -89,6 +89,11 @@
             <option value="all" data-t>All available</option>
           </select>
           <p class="hint" id="market-hint"></p>
+          <div id="benchmark-row" hidden>
+            <label for="benchmark" data-t>Benchmark symbol (optional)</label>
+            <input id="benchmark" type="text" maxlength="20" autocomplete="off" spellcheck="false" placeholder="XU100.IS" aria-describedby="benchmark-hint">
+            <p class="hint" id="benchmark-hint" data-t>Adds beta, tracking error and the information ratio against it, for example XU100.IS or ^GSPC.</p>
+          </div>
         </div>
 
         <div class="field" id="scenario-field">
@@ -126,6 +131,12 @@
         <div class="field">
           <label for="window" data-t>Rolling window (periods)</label>
           <input id="window" name="window" type="number" min="30" max="2000" step="10" value="250" inputmode="numeric">
+        </div>
+
+        <div class="field" id="horizon-field">
+          <label for="horizon" data-t>Horizon (periods)</label>
+          <input id="horizon" name="horizon" type="number" min="1" max="60" step="1" value="1" inputmode="numeric" aria-describedby="horizon-hint">
+          <p class="hint" id="horizon-hint" data-t>1 is a single period. A longer horizon scales the one-period figures by the square root of time, an approximation that assumes independent returns.</p>
         </div>
       </form>
     </section>
@@ -214,6 +225,22 @@
           <table class="assets whatif" id="table-whatif"></table>
         </div>
         <button type="button" class="button" id="whatif-add" data-t>Add a scenario</button>
+      </section>
+
+      <section class="panel" id="benchmark-section" aria-labelledby="benchmark-title" hidden>
+        <h2 id="benchmark-title" data-t>Against the benchmark</h2>
+        <p class="takeaway" id="takeaway-benchmark"></p>
+        <div class="table-scroll" role="region" data-t-attr="aria-label" aria-label="Benchmark comparison" tabindex="0">
+          <table class="tests" id="table-benchmark"></table>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="ewma-title">
+        <h2 id="ewma-title" data-t>Rolling window against a filtered estimate</h2>
+        <p class="takeaway" id="takeaway-ewma"></p>
+        <div class="table-scroll" role="region" data-t-attr="aria-label" aria-label="Rolling and filtered estimates" tabindex="0">
+          <table class="tests" id="table-ewma"></table>
+        </div>
       </section>
 
       <section class="panel" aria-labelledby="backtest-title">

@@ -671,6 +671,7 @@ class TestPortfolioBook:
             'weights': {'THYAO.IS': 60.0, 'GARAN.IS': 40.0},
             'base': 'TRY',
             'years': 5,
+            'benchmark': None,
         }
 
         updated = client.post('/api/portfolios', json=book_request('my BOOK', weights={'THYAO.IS': 1, 'GARAN.IS': 3}))

@@ -33,7 +33,7 @@ from . import analysis
 from .settings import PROVIDERS
 
 SYMBOL = re.compile(r'^[A-Za-z0-9^][A-Za-z0-9.^_=-]{0,19}$')
-MAX_SYMBOLS = 10
+MAX_SYMBOLS = 11  # ten assets and a benchmark
 MAX_RESPONSE_BYTES = 5_000_000
 TIMEOUT_SECONDS = 10.0
 RETRY_STATUSES = (429, 500, 502, 503, 504)

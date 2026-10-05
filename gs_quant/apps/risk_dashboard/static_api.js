@@ -44,6 +44,8 @@
         summary: variant.summary,
         backtest: variant.backtest,
         settings: variant.settings,
+        horizon: variant.horizon,
+        ewma: variant.ewma,
         histogram: scenario.shared.histogram,
         qq: scenario.shared.qq,
         worst_drawdown: scenario.shared.worst_drawdown,
@@ -57,6 +59,7 @@
           drawdown: scenario.shared.drawdown,
           var: variant.var,
           expected_shortfall: variant.expected_shortfall,
+          ewma_var: variant.ewma_var,
           breach: variant.breach,
         },
       };

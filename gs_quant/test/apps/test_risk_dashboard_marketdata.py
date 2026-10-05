@@ -316,7 +316,7 @@ class TestService:
         [
             ('', 'between 1 and'),
             (',,', 'between 1 and'),
-            (','.join('abcdefghijk'), 'between 1 and'),
+            (','.join('abcdefghijkl'), 'between 1 and'),
             ('a,A', 'once'),
             ('../etc/passwd', 'not a valid symbol'),
             ('a b', 'not a valid symbol'),

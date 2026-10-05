@@ -30,7 +30,9 @@ from gs_quant.timeseries.risk_metrics import (
     drawdown,
     expected_shortfall,
     infer_periods_per_year,
+    information_ratio,
     risk_summary,
+    tracking_error,
     traffic_light_zone,
     value_at_risk,
     var_backtest,
@@ -45,6 +47,10 @@ STRESS_HORIZONS = (1, 5, 20)  # periods
 MAX_SCENARIOS = 5
 SERIES_KEY = 'series'  # what a single series is called in a what-if scenario
 DEFAULT_PERIODS_PER_YEAR = 252
+MAX_HORIZON = 60  # periods
+EWMA_DECAY = 0.94  # the RiskMetrics value for daily data
+MIN_BENCHMARK_OBSERVATIONS = 30
+MIN_BENCHMARK_VARIANCE = 1e-20
 
 
 class AnalysisError(ValueError):
@@ -157,6 +163,80 @@ def build_series(
     return series, assumptions
 
 
+def ewma_volatility(returns: pd.Series, decay: float = EWMA_DECAY) -> pd.Series:
+    """Exponentially weighted volatility per period, with zero mean: s2[t] = decay * s2[t-1] + (1 - decay) * r[t]^2
+
+    The recursion starts from the first squared return, so the first values are noisy: the weights of the start fall
+    below one in a million after about 230 periods at the default decay.
+    """
+    return np.sqrt((returns**2).ewm(alpha=1 - decay, adjust=False).mean())
+
+
+def _ewma(returns: pd.Series, confidence: float, window: int, periods: float, var: pd.Series, summary: dict) -> tuple:
+    """The filtered estimate of risk next to the rolling one: its volatility, a normal value at risk from it, and how
+    that value at risk fared against the periods that followed it (over the same periods as the rolling window's)"""
+    sigma = ewma_volatility(returns)
+    z = float(stats.norm.ppf(1 - confidence))
+    forecast = (z * sigma).where(var.notna())  # the same periods as the rolling estimate, so the two are comparable
+    backtest = var_backtest(returns, forecast.shift(1), confidence)
+    recent = returns.iloc[-window:]
+    details = {
+        'decay': EWMA_DECAY,
+        'volatility': clean(float(sigma.iloc[-1]) * math.sqrt(periods), 6),
+        'window_volatility': clean(float(recent.std(ddof=1)) * math.sqrt(periods), 6),
+        'full_volatility': clean(summary['annualized_volatility'], 6),
+        'var': clean(float(z * sigma.iloc[-1]), 6),
+        'exceedances': backtest.exceedances,
+        'observations': backtest.observations,
+        'expected_rate': clean(backtest.expected_rate, 6),
+        'p_value': clean(backtest.p_value, 6),
+        'reject': bool(backtest.reject),
+    }
+    return details, forecast
+
+
+def horizon_risk(periods: int, var: float, es: float) -> dict:
+    """Value at risk and expected shortfall over several periods by the square-root-of-time rule: the one-period figure
+    times the square root of the horizon. It assumes independent returns and no drift, and it is an approximation,
+    never an exact result; it is capped at a loss of 100%."""
+    scale = math.sqrt(periods)
+    return {
+        'periods': periods,
+        'rule': 'square_root_of_time',
+        'var': clean(max(var * scale, -1.0)),
+        'expected_shortfall': clean(max(es * scale, -1.0)),
+    }
+
+
+def versus_benchmark(returns: pd.Series, benchmark: pd.Series, name: str, periods: float) -> dict:
+    """How the series moves against a benchmark over the periods both have: beta, tracking error and the rest"""
+    joined = pd.concat([returns.rename('r'), benchmark.rename('b')], axis=1, join='inner').dropna()
+    if len(joined) < MIN_BENCHMARK_OBSERVATIONS:
+        raise AnalysisError(f'At least {MIN_BENCHMARK_OBSERVATIONS} periods in common with the benchmark are needed')
+    r, b = joined['r'], joined['b']
+    variance = float(b.var(ddof=1))
+    if not variance > MIN_BENCHMARK_VARIANCE:
+        raise AnalysisError('The benchmark does not vary, so there is nothing to compare against')
+    beta = float(r.cov(b)) / variance
+    correlation = float(r.corr(b))
+    active = r - b
+    te = tracking_error(r, b, annualization_factor=int(periods)).dropna()
+    ir = information_ratio(r, b, annualization_factor=int(periods)).dropna()
+    return {
+        'name': name,
+        'observations': len(joined),
+        'beta': clean(beta, 4),
+        'correlation': clean(correlation, 4),
+        'r_squared': clean(correlation**2, 4),
+        'alpha': clean((float(r.mean()) - beta * float(b.mean())) * periods),
+        'active_return': clean(float(active.mean()) * periods),
+        'tracking_error': clean(float(te.iloc[-1])) if len(te) else None,
+        'information_ratio': clean(float(ir.iloc[-1]), 4) if len(ir) else None,
+        'benchmark_volatility': clean(float(b.std(ddof=1)) * math.sqrt(periods)),
+        'volatility': clean(float(r.std(ddof=1)) * math.sqrt(periods)),
+    }
+
+
 def _histogram(returns: pd.Series) -> dict:
     """Histogram over the central 99% of the returns, with the number of outliers outside it"""
     low, high = np.quantile(returns, [HISTOGRAM_TAIL, 1 - HISTOGRAM_TAIL])
@@ -233,6 +313,7 @@ def analyze(
     minimum_acceptable_return: float = 0.0,
     periods_per_year: Optional[int] = None,
     assumptions: Optional[list[str]] = None,
+    horizon: int = 1,
 ) -> dict:
     """Everything the dashboard shows for a series of simple returns"""
     assumptions = list(assumptions or [])
@@ -254,8 +335,17 @@ def analyze(
         backtest = var_backtest(returns, forecast, confidence)
         independence = var_independence_test(returns, forecast, confidence)
         light = traffic_light_zone(backtest.exceedances, backtest.observations, confidence)
+        ewma, ewma_var = _ewma(returns, confidence, window, periods, var, summary.to_dict())
     except (MqError, ValueError) as e:
         raise AnalysisError(str(e)) from e
+
+    risk = headline_figures(summary.to_dict(), method)
+    horizon_details = horizon_risk(horizon, risk['var'], risk['expected_shortfall'])
+    if horizon > 1:
+        assumptions.append(
+            f'The {horizon}-period figures scale the one-period value at risk and expected shortfall by the square '
+            'root of the horizon, which assumes independent returns and no drift'
+        )
 
     growth = (1 + returns).cumprod()
     dd = drawdown(pd.concat([pd.Series([1.0]), growth.reset_index(drop=True)]))[1:]
@@ -282,7 +372,10 @@ def analyze(
             'window': window,
             'minimum_acceptable_return': minimum_acceptable_return,
             'periods_per_year': periods,
+            'horizon': horizon,
         },
+        'horizon': horizon_details,
+        'ewma': ewma,
         'series': {
             'dates': labels,
             'returns': clean_list(returns, 6),
@@ -290,6 +383,7 @@ def analyze(
             'drawdown': clean_list(dd, 6),
             'var': clean_list(var.reindex(returns.index), 6),
             'expected_shortfall': clean_list(es.reindex(returns.index), 6),
+            'ewma_var': clean_list(ewma_var.reindex(returns.index), 6),
             'breach': [bool(b) for b in breaches.reindex(returns.index).fillna(False)],
         },
         'histogram': _histogram(returns),
@@ -301,16 +395,23 @@ def analyze(
     }
 
 
+def headline_figures(summary: dict, method: VaRMethod) -> dict:
+    """The one-period value at risk and expected shortfall that the chosen method gives"""
+    es_method = 'historical' if method == VaRMethod.HISTORICAL else 'parametric'
+    return {
+        'var': clean(summary[f'var_{method.value}']),
+        'expected_shortfall': clean(summary[f'expected_shortfall_{es_method}']),
+    }
+
+
 def headline(result: dict) -> dict:
     """The few figures that identify a result in a list: its VaR and expected shortfall, the Basel zone and the size"""
-    summary, method = result['summary'], result['settings']['method']
-    es_method = 'historical' if method == VaRMethod.HISTORICAL.value else 'parametric'
+    summary, method = result['summary'], VaRMethod(result['settings']['method'])
     return {
         'confidence': result['settings']['confidence'],
-        'method': method,
+        'method': method.value,
         'observations': summary['observations'],
-        'var': clean(summary[f'var_{method}']),
-        'expected_shortfall': clean(summary[f'expected_shortfall_{es_method}']),
+        **headline_figures(summary, method),
         'volatility': clean(summary['annualized_volatility']),
         'zone': result['backtest']['traffic_light']['zone'],
     }

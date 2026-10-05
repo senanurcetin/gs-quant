@@ -385,3 +385,69 @@ def test_named_portfolios(server, browser):
     page.click('#book li button[data-action=delete]')
     page.locator('#book li').first.wait_for(state='detached')
     assert problems == []
+
+
+def test_horizon_filtered_estimate_and_benchmark(server, browser):
+    page = browser.new_context(locale='en-US').new_page()
+    problems = []
+    page.on('pageerror', lambda e: problems.append(str(e)))
+    page.on('console', lambda m: problems.append(m.text) if m.type in ('error', 'warning') else None)
+    page.goto(server)
+    page.wait_for_selector('#results:not([hidden])')
+    page.wait_for_selector('#results:not(.loading)')
+
+    # the filtered estimate is always there, the benchmark only for a portfolio loaded with one
+    assert page.locator('#table-ewma tbody tr').count() == 6
+    assert page.locator('#headline > div').count() == 4
+    assert not page.is_visible('#benchmark-section') and not page.is_visible('#benchmark-row')
+    assert 'Filtered VaR (EWMA)' in page.inner_text('#chart-var')
+
+    page.fill('#horizon', '10')
+    page.press('#horizon', 'Tab')
+    page.locator('#headline > div').nth(5).wait_for()
+    assert '10 periods' in page.inner_text('#headline') and 'square root of time' in page.inner_text('#headline')
+    assert 'square root of the horizon' in page.text_content('#notes')
+    page.fill('#horizon', '1')
+    page.press('#horizon', 'Tab')
+    page.locator('#headline > div').nth(5).wait_for(state='detached')
+
+    page.click('input[name=mode][value=portfolio]')
+    page.wait_for_selector('#benchmark-row:not([hidden])')
+    page.fill('#symbols', 'THYAO.IS, GARAN.IS')
+    page.fill('#benchmark', 'aapl')
+    page.click('#market-load')
+    page.wait_for_selector('#benchmark-section:not([hidden])')
+    page.wait_for_selector('#results:not(.loading)')
+    assert page.locator('#table-assets tbody tr').count() == 3  # two assets and the portfolio: not the benchmark
+    assert 'AAPL' in page.inner_text('#takeaway-benchmark')
+    assert page.locator('#table-benchmark tbody tr').count() == 8
+    assert 'Beta' in page.inner_text('#table-benchmark') and 'Tracking error' in page.inner_text('#table-benchmark')
+
+    # a benchmark is kept with a named portfolio and comes back with it
+    page.fill('#book-name', 'Banks vs Apple')
+    page.click('#book-form button')
+    page.locator('#book li').first.wait_for()
+    stored = page.request.get(f'{server}/api/portfolios').json()
+    assert [p['benchmark'] for p in stored if p['name'] == 'Banks vs Apple'] == ['AAPL']
+    page.fill('#benchmark', '')
+    page.click('#book li button[data-action=open]')
+    sync_api.expect(page.locator('#benchmark')).to_have_value('AAPL')  # the saved definition is fetched first
+    page.wait_for_selector('#benchmark-section:not([hidden])')
+    page.wait_for_selector('#results:not(.loading)')
+
+    page.click('#lang')
+    page.locator('#benchmark-title').filter(has_text='Kıyasa göre').wait_for()
+    assert 'zamanın karekökü' not in page.inner_text('#headline')  # a horizon of one shows no such figures
+    assert 'Filtrelenmiş' in page.inner_text('#table-ewma')
+
+    page.once('dialog', lambda dialog: dialog.accept())
+    page.click('#book li button[data-action=delete]')
+    page.locator('#book li').first.wait_for(state='detached')
+
+    assert problems == []
+
+    # a symbol that does not exist is an error, not a silent portfolio without a benchmark
+    page.fill('#benchmark', 'NOPE.IS')
+    page.click('#market-load')
+    page.locator('#status.error').wait_for()
+    assert problems == ['Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)']

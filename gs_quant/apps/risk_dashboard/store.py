@@ -186,6 +186,7 @@ class RunStore:
             'updated_at': row['updated_at'],
             'symbols': definition['symbols'],
             'base': definition.get('base'),
+            'benchmark': definition.get('benchmark'),
         }
 
     def save_portfolio(self, name: str, definition: dict) -> tuple[dict, bool]:

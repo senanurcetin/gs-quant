@@ -96,6 +96,7 @@ class _Settings(BaseModel):
     window: int = Field(250, ge=30, le=2000)
     minimum_acceptable_return: float = Field(0.0, ge=-0.5, le=0.5)
     periods_per_year: Optional[int] = Field(None, ge=1, le=366)
+    horizon: int = Field(1, ge=1, le=analysis.MAX_HORIZON)
     scenarios: list[Scenario] = Field(default_factory=list, max_length=analysis.MAX_SCENARIOS)
 
 
@@ -120,6 +121,8 @@ class PortfolioRequest(_Settings):
     kind: Literal['returns', 'prices'] = 'returns'
     weights: Optional[dict[str, float]] = Field(None, max_length=portfolio.MAX_ASSETS)
     dates: Optional[list[dt.date]] = Field(None, max_length=analysis.MAX_OBSERVATIONS + 1)
+    benchmark: Optional[list[float]] = Field(None, max_length=analysis.MAX_OBSERVATIONS + 1)
+    benchmark_name: str = Field('Benchmark', min_length=1, max_length=portfolio.MAX_NAME_LENGTH)
 
     @field_validator('assets')
     @classmethod
@@ -158,10 +161,11 @@ class PortfolioBookRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
     name: str = Field(..., min_length=1, max_length=MAX_NAME_LENGTH)
-    symbols: list[str] = Field(..., min_length=2, max_length=marketdata.MAX_SYMBOLS)
-    weights: dict[str, float] = Field(..., max_length=marketdata.MAX_SYMBOLS)
+    symbols: list[str] = Field(..., min_length=2, max_length=portfolio.MAX_ASSETS)
+    weights: dict[str, float] = Field(..., max_length=portfolio.MAX_ASSETS)
     base: Optional[str] = None
     years: Optional[int] = None
+    benchmark: Optional[str] = None
 
     @field_validator('name')
     @classmethod
@@ -170,6 +174,16 @@ class PortfolioBookRequest(BaseModel):
         if not name or not name.isprintable():
             raise ValueError('The name must be printable text')
         return name
+
+    @field_validator('benchmark')
+    @classmethod
+    def _benchmark_symbol(cls, benchmark: Optional[str]) -> Optional[str]:
+        if benchmark is None or not benchmark.strip():
+            return None
+        benchmark = benchmark.strip().upper()
+        if not marketdata.SYMBOL.match(benchmark):
+            raise ValueError(f'"{benchmark[:20]}" is not a valid symbol')
+        return benchmark
 
     @field_validator('symbols')
     @classmethod
@@ -221,6 +235,7 @@ def execute(kind: str, params: _Settings) -> dict:
             minimum_acceptable_return=params.minimum_acceptable_return,
             periods_per_year=params.periods_per_year,
             assumptions=assumptions,
+            horizon=params.horizon,
         )
         weights = {analysis.SERIES_KEY: 1.0}
     else:
@@ -234,6 +249,9 @@ def execute(kind: str, params: _Settings) -> dict:
             window=params.window,
             minimum_acceptable_return=params.minimum_acceptable_return,
             periods_per_year=params.periods_per_year,
+            horizon=params.horizon,
+            benchmark=params.benchmark,
+            benchmark_name=params.benchmark_name,
         )
         weights = {asset['name']: asset['weight'] for asset in result['portfolio']['assets']}
     if params.scenarios:
@@ -465,6 +483,7 @@ class Application:
             'weights': {s: body.weights[s] for s in body.symbols},
             'base': body.base,
             'years': body.years,
+            'benchmark': body.benchmark,
         }
         try:
             meta, created = await run_in_threadpool(self.store.save_portfolio, body.name, definition)
