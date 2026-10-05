@@ -50,6 +50,11 @@ reason a freshly installed command is "not recognized" on Windows. It listens on
   every text has a Turkish translation with the same placeholders. To add a language, add a table there.
 - **Stress**: the worst 1, 5 and 20 consecutive periods that actually occurred in the data, with their dates, how many
   times the VaR the worst period was and, for a portfolio, what each asset did over the same dates.
+- **What if**: up to five scenarios of your own, each saying how much every asset moves at once in percent (`-10` is a
+  fall of 10%; an asset left at 0 stays put; for a single series, one shock). The effect on the portfolio is the weighted
+  sum at its weights, shown beside how many times the VaR and the expected shortfall that is. It is a first-order answer,
+  made in the same way for any asset: no betas or correlations are assumed, so a "market falls 10%" scenario means entering
+  the fall of each asset yourself. Scenarios are saved with the analysis and appear, read-only, in its report.
 - **Saved analyses**: name an analysis and it is kept in a SQLite file. Opening it recomputes it, so it always reflects
   the current model code. Each one can be downloaded as a **report**: one HTML file with its charts and numbers that opens
   without a server, offline. Tick two to four saved analyses to compare them side by side (for instance a portfolio before
@@ -131,7 +136,7 @@ prices are not covered, both sources being used for daily closes.
 | `GET /api/config` | Limits, and whether a token is needed |
 | `GET /api/market/prices?symbols=a,b&start=&base=` | Closing prices by symbol from the configured provider (404 when none is configured); the answer can be sent as `prices` to `/api/analyze` or `/api/portfolio` |
 | `GET /api/scenarios`, `GET /api/sample?scenario=&n=&seed=` | The sample scenarios and their simulated returns |
-| `POST /api/analyze` | Body: `returns` or `prices`, optional `dates`, `confidence` (0.8 to 0.999), `method` (`historical`, `parametric`, `cornish_fisher`), `window`, `minimum_acceptable_return`, `periods_per_year`. At most 5,000 observations. |
+| `POST /api/analyze` | Body: `returns` or `prices`, optional `dates`, `scenarios` (a list of `{name, shocks}`, shocks by asset name as fractions, `series` for a single series; at most five), `confidence` (0.8 to 0.999), `method` (`historical`, `parametric`, `cornish_fisher`), `window`, `minimum_acceptable_return`, `periods_per_year`. At most 5,000 observations. |
 | `POST /api/portfolio` | Body: `assets` (name to values), `kind` (`returns` or `prices`), optional `weights` (name to weight, equal weights if omitted, scaled to sum to 1) and the same settings. Answers like `/api/analyze` plus a `portfolio` section. |
 | `GET /api/runs`, `POST /api/runs` | List the saved analyses; save one: `{name, kind: "single" or "portfolio", request}`, where `request` is the body of the matching analysis endpoint. The request is analysed first, so only valid ones are stored. |
 | `GET /api/runs/compare?ids=a,b,c` | The headline figures of two to four saved analyses, recomputed, in the order asked for |

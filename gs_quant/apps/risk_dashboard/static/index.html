@@ -195,6 +195,15 @@
         </div>
       </section>
 
+      <section class="panel" id="whatif-section" aria-labelledby="whatif-title" hidden>
+        <h2 id="whatif-title" data-t>What if? Shocks of your own</h2>
+        <p class="hint" data-t>Enter how much each asset would move at once, in percent (-10 is a fall of 10%). The effect on the portfolio is the weighted sum, compared with the VaR and the expected shortfall.</p>
+        <div class="table-scroll" role="region" data-t-attr="aria-label" aria-label="What-if scenarios" tabindex="0">
+          <table class="assets whatif" id="table-whatif"></table>
+        </div>
+        <button type="button" class="button" id="whatif-add" data-t>Add a scenario</button>
+      </section>
+
       <section class="panel" aria-labelledby="backtest-title">
         <h2 id="backtest-title" data-t>Model validation</h2>
         <p id="verdict" class="verdict"></p>

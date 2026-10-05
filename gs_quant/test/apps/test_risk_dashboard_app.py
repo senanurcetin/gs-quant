@@ -308,6 +308,137 @@ class TestStress:
 
 
 # ----------------------------------------------------------------------------------------------------------------------
+# What-if scenarios
+# ----------------------------------------------------------------------------------------------------------------------
+
+
+class TestWhatIf:
+    def test_the_loss_is_the_weighted_sum_of_the_shocks(self):
+        weights = {'A': 0.5, 'B': 0.3, 'C': 0.2}
+
+        (result,) = analysis.what_if([('crash', {'A': -0.2, 'B': -0.1, 'C': 0.1})], weights, -0.02, -0.03)
+
+        assert result['loss'] == pytest.approx(0.5 * -0.2 + 0.3 * -0.1 + 0.2 * 0.1)
+        assert [(a['name'], a['contribution']) for a in result['assets']] == [('A', -0.1), ('B', -0.03), ('C', 0.02)]
+        assert result['var_multiple'] == pytest.approx(result['loss'] / -0.02, abs=1e-3)
+        assert result['es_multiple'] == pytest.approx(result['loss'] / -0.03, abs=1e-3)
+
+    def test_an_asset_left_out_does_not_move(self):
+        (result,) = analysis.what_if([('only A', {'A': -0.1})], {'A': 0.4, 'B': 0.6}, -0.02, -0.03)
+
+        assert result['loss'] == pytest.approx(-0.04)
+        assert [a['shock'] for a in result['assets']] == [-0.1, 0.0]
+
+    def test_a_gain_or_no_risk_figure_has_no_multiple(self):
+        gain, loss = analysis.what_if([('up', {'A': 0.1}), ('down', {'A': -0.1})], {'A': 1.0}, None, 0.01)
+
+        assert gain['loss'] == pytest.approx(0.1) and gain['var_multiple'] is None and gain['es_multiple'] is None
+        assert loss['var_multiple'] is None and loss['es_multiple'] is None  # no loss figure to compare with
+
+    def test_unknown_assets_are_refused_by_name(self):
+        with pytest.raises(analysis.AnalysisError, match='Scenario "bad": unknown asset "Z"'):
+            analysis.what_if([('bad', {'Z': -0.1})], {'A': 1.0}, -0.02, -0.03)
+
+    def test_scenarios_come_back_in_the_order_given(self):
+        result = analysis.what_if([(n, {'A': -0.1}) for n in 'cab'], {'A': 1.0}, -0.02, -0.03)
+
+        assert [r['name'] for r in result] == ['c', 'a', 'b']
+
+
+class TestWhatIfApi:
+    def test_a_single_series_is_shocked_as_series(self, client):
+        body = single_request(400, window=100, scenarios=[{'name': 'Fall of 10%', 'shocks': {'series': -0.1}}])
+
+        result = client.post('/api/analyze', json=body).json()
+
+        (scenario,) = result['scenarios']
+        assert scenario['loss'] == -0.1 and scenario['assets'] == [
+            {'name': 'series', 'weight': 1.0, 'shock': -0.1, 'contribution': -0.1}
+        ]
+        var = result['summary']['var_historical']
+        assert scenario['var_multiple'] == pytest.approx(-0.1 / var, abs=1e-3)
+
+    def test_a_portfolio_is_shocked_asset_by_asset_at_its_weights(self, client):
+        body = portfolio_request(
+            400,
+            window=100,
+            weights={'Calm': 0.5, 'Volatile': 0.25, 'Shift': 0.25},
+            scenarios=[
+                {'name': 'Everything down', 'shocks': {'Calm': -0.1, 'Volatile': -0.1, 'Shift': -0.1}},
+                {'name': 'Volatile only', 'shocks': {' Volatile ': -0.4}},
+            ],
+        )
+
+        first, second = client.post('/api/portfolio', json=body).json()['scenarios']
+
+        assert first['loss'] == pytest.approx(-0.1) and second['loss'] == pytest.approx(-0.1)
+        assert [a['weight'] for a in first['assets']] == [0.5, 0.25, 0.25]
+        assert [a['contribution'] for a in second['assets']] == [0.0, -0.1, 0.0]
+
+    def test_the_weights_that_are_scaled_are_the_ones_used(self, client):
+        body = portfolio_request(
+            400,
+            window=100,
+            weights={'Calm': 2, 'Volatile': 1, 'Shift': 1},
+            scenarios=[{'name': 'Calm falls', 'shocks': {'Calm': -0.2}}],
+        )
+
+        (scenario,) = client.post('/api/portfolio', json=body).json()['scenarios']
+
+        assert scenario['loss'] == pytest.approx(-0.1)  # half of the portfolio, after scaling to 1
+
+    def test_no_scenarios_means_no_section(self, client):
+        assert 'scenarios' not in client.post('/api/analyze', json=single_request(400, window=100)).json()
+
+    @pytest.mark.parametrize(
+        'scenarios, message',
+        [
+            ([{'name': 'x', 'shocks': {'Nope': -0.1}}], 'unknown asset "Nope"'),
+            ([{'name': 'x', 'shocks': {'series': -1.5}}], 'between -100% and +1000%'),
+            ([{'name': 'x', 'shocks': {'series': 11}}], 'between -100% and +1000%'),
+            ([{'name': ' ', 'shocks': {'series': -0.1}}], 'printable'),
+            ([{'name': 'x' * 61, 'shocks': {'series': -0.1}}], 'at most 60'),
+            ([{'name': f's{i}', 'shocks': {'series': -0.1}} for i in range(6)], 'at most 5'),
+            ([{'name': 'x', 'shocks': {'series': -0.1}, 'extra': 1}], 'Extra inputs'),
+            ([{'name': 'x', 'shocks': {'series': 'big'}}], 'valid number'),
+            ([{'name': 'x'}], 'Field required'),
+        ],
+    )
+    def test_bad_scenarios_are_refused(self, client, scenarios, message):
+        response = client.post('/api/analyze', json=single_request(400, window=100, scenarios=scenarios))
+
+        assert response.status_code == 422 and message in response.json()['error']
+
+    def test_scenarios_are_saved_with_the_run_and_shown_in_its_report(self, client):
+        request = single_request(400, window=100, scenarios=[{'name': 'Fall of 10%', 'shocks': {'series': -0.1}}])
+        saved = client.post('/api/runs', json={'name': 'With a what-if', 'kind': 'single', 'request': request}).json()
+
+        opened = client.get(f'/api/runs/{saved["id"]}').json()
+        report = client.get(f'/api/runs/{saved["id"]}/report').text
+
+        assert opened['request']['scenarios'][0]['name'] == 'Fall of 10%'
+        assert opened['result']['scenarios'][0]['loss'] == -0.1
+        assert 'Fall of 10%' in report
+
+    def test_the_comparison_ignores_scenarios(self, client):
+        plain = client.post(
+            '/api/runs', json={'name': 'a', 'kind': 'single', 'request': single_request(400, window=100)}
+        ).json()
+        shocked = client.post(
+            '/api/runs',
+            json={
+                'name': 'b',
+                'kind': 'single',
+                'request': single_request(400, window=100, scenarios=[{'name': 'x', 'shocks': {'series': -0.1}}]),
+            },
+        ).json()
+
+        runs = client.get(f'/api/runs/compare?ids={plain["id"]},{shocked["id"]}').json()['runs']
+
+        assert runs[0]['metrics'] == runs[1]['metrics']
+
+
+# ----------------------------------------------------------------------------------------------------------------------
 # HTTP: portfolio, saved runs, report
 # ----------------------------------------------------------------------------------------------------------------------
 

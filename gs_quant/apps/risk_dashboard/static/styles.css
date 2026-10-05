@@ -287,3 +287,11 @@ body.report .controls, body.report .history, body.report .save-form { display: n
 
 .title-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .button.lang { padding: 4px 12px; flex: none; }
+
+.whatif input[type='text'], .whatif input[type='number'] { padding: 4px 8px; }
+.whatif input[type='text'] { min-width: 9rem; }
+.whatif input[type='number'] { width: 5.5rem; text-align: right; }
+.whatif th[scope='row'] { font-weight: 400; }
+.whatif .button { padding: 3px 9px; font-size: 0.8rem; }
+#whatif-section .hint { margin-bottom: 8px; }
+#whatif-add { margin-top: 10px; }
