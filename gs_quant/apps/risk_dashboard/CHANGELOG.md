@@ -10,6 +10,8 @@ release are the section of that version below, and are published with it.
   form that the export removes. It now works, and a browser test opens it.
 
 ### Added
+- `gs-quant-risk check-portfolio`: a whole analysis on live data, step by step, to run on the machine that serves the
+  application.
 - A live demo on GitHub Pages: the exported dashboard with simulated data, rebuilt when the application changes.
 
 ## [0.1.0] - 2026-10-05

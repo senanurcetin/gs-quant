@@ -61,6 +61,15 @@ def build_parser(settings: Settings) -> argparse.ArgumentParser:
     check.add_argument('--provider', choices=['stooq', 'yahoo', 'all'], default='all')
     check.add_argument('--symbol', help='Symbol to fetch (default: AAPL, in each provider\'s spelling)')
 
+    portfolio = commands.add_parser(
+        'check-portfolio',
+        help='Run a whole analysis on live data (prices, currency conversion, benchmark) and report each step',
+    )
+    portfolio.add_argument('--symbols', default='THYAO.IS,GARAN.IS,AAPL', help='Comma-separated symbols')
+    portfolio.add_argument('--benchmark', default='XU100.IS', help='Benchmark symbol, or "none"')
+    portfolio.add_argument('--base', default='TRY', help='Currency to convert to, or "auto"')
+    portfolio.add_argument('--years', type=int, default=3, help='Years of history (0 for all)')
+
     export = commands.add_parser('export', help='Write the dashboard as one self-contained HTML file')
     export.add_argument('-o', '--output', default='risk_dashboard.html', type=Path)
     export.add_argument('--observations', type=int, default=1000)
@@ -89,9 +98,24 @@ def check_data(provider: str, symbol: Optional[str]) -> int:
     return 1 if failed else 0
 
 
+def check_portfolio(symbols: str, benchmark: str, base: str, years: int, provider: Optional[str]) -> int:
+    from . import marketdata, selftest
+
+    chosen = provider or 'yahoo'
+    market = marketdata.make_market_data(chosen)
+    names = tuple(s.strip() for s in symbols.split(',') if s.strip())
+    return selftest.run(
+        market,
+        names,
+        None if benchmark.lower() in ('', 'none') else benchmark.strip(),
+        None if base.lower() in ('', 'auto') else base.strip(),
+        years or None,
+    )
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    if not argv or argv[0] not in ('serve', 'export', 'check-data', '-h', '--help'):
+    if not argv or argv[0] not in ('serve', 'export', 'check-data', 'check-portfolio', '-h', '--help'):
         argv.insert(0, 'serve')  # `python -m gs_quant.apps.risk_dashboard --port 9000` keeps working
     try:
         settings = Settings.from_env()
@@ -102,6 +126,9 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     if args.command == 'check-data':
         return check_data(args.provider, args.symbol)
+
+    if args.command == 'check-portfolio':
+        return check_portfolio(args.symbols, args.benchmark, args.base, args.years, settings.market_data)
 
     if args.command == 'export':
         from . import export
