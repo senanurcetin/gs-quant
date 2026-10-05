@@ -1,0 +1,56 @@
+# Publishing a release: push a tag release-X.Y.Z (the version is read from the tag, and gs_quant/apps/risk_dashboard/CHANGELOG.md must have a section
+# "## [X.Y.Z]"). The checks of ci.yml run first; then the image is built with that version, started once to check what it
+# reports, pushed to ghcr.io/<owner>/gs-quant-risk and a GitHub release is created with the notes of the changelog.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'release-*'
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: Publish the image and the release
+    needs: checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # the GitHub release
+      packages: write # the image in ghcr.io
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Version and notes
+        run: |
+          VERSION="${TAG#release-}"
+          if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then echo "$TAG is not release-X.Y.Z"; exit 1; fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/gs-quant-risk" >> "$GITHUB_ENV"
+          python3 deploy/release_notes.py gs_quant/apps/risk_dashboard/CHANGELOG.md "$VERSION" > "$RUNNER_TEMP/notes.md"
+          cat "$RUNNER_TEMP/notes.md"
+      - name: Build the image
+        run: |
+          MINOR="${VERSION%.*}"
+          docker build --build-arg VERSION="$VERSION" -t "$IMAGE:$VERSION" -t "$IMAGE:$MINOR" -t "$IMAGE:latest" .
+      - name: The image reports its version and asks for a token
+        run: |
+          if docker run --rm "$IMAGE:$VERSION"; then echo "expected the container to refuse to start"; exit 1; fi
+          docker run -d --name risk -p 8000:8000 -e RISK_APP_API_TOKEN=release-token-0123456789 "$IMAGE:$VERSION"
+          for i in $(seq 1 30); do curl -fs http://127.0.0.1:8000/api/health && break; sleep 2; done
+          test "$(curl -fs http://127.0.0.1:8000/api/health | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')" = "$VERSION"
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/api/runs)" = 401
+          docker rm -f risk
+      - name: Log in to ghcr.io
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Push the image
+        run: docker push --all-tags "$IMAGE"
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "$TAG" --title "$VERSION" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag

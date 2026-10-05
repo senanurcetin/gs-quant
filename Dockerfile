@@ -1,6 +1,11 @@
 # Risk analytics application: docker build -t gs-quant-risk .
 # docker run -p 8000:8000 -e RISK_APP_API_TOKEN=<16 or more characters> -v risk-data:/data gs-quant-risk
+# Published images: ghcr.io/senanurcetin/gs-quant-risk:<version>
 FROM python:3.12-slim
+
+# The version the application reports. A source tree without git history cannot work it out, so a release build passes it
+# (docker build --build-arg VERSION=1.2.3 .); without it the image reports 0+unknown.
+ARG VERSION=""
 
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -11,7 +16,8 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /src
 COPY . /src
-RUN pip install ".[app]" && rm -rf /src
+RUN if [ -n "$VERSION" ]; then python deploy/pin_version.py "$VERSION"; fi \
+    && pip install ".[app]" && rm -rf /src
 
 RUN useradd --create-home --uid 10001 app && mkdir /data && chown app /data
 USER app
