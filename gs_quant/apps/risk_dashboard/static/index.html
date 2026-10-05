@@ -3,61 +3,64 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Risk Analytics Dashboard</title>
-  <meta name="description" content="Value at risk, expected shortfall and VaR backtesting, built on gs_quant.timeseries.risk_metrics">
+  <title data-t>Risk Analytics Dashboard</title>
+  <meta name="description" data-t-attr="content" content="Value at risk, expected shortfall and VaR backtesting, built on gs_quant.timeseries.risk_metrics">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Cpath d=%27M1 12l4-5 3 3 6-8%27 fill=%27none%27 stroke=%27%231f5fbf%27 stroke-width=%272%27/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-  <a class="skip-link" href="#results">Skip to results</a>
+  <a class="skip-link" href="#results" data-t>Skip to results</a>
   <header class="site-header">
     <div class="wrap">
-      <h1>Risk Analytics Dashboard</h1>
-      <p class="lede" id="lede">Value at risk, expected shortfall and model validation for a return series or a portfolio,
+      <div class="title-row">
+        <h1 data-t>Risk Analytics Dashboard</h1>
+        <button type="button" class="button lang" id="lang" lang="tr">Türkçe</button>
+      </div>
+      <p class="lede" id="lede" data-t-nodes>Value at risk, expected shortfall and model validation for a return series or a portfolio,
         computed by <code>gs_quant.timeseries.risk_metrics</code>.</p>
     </div>
   </header>
 
   <main class="wrap">
     <form id="token-form" class="panel token-form" autocomplete="off" hidden>
-      <h2 id="token-title">Access token required</h2>
-      <p class="hint">This server asks for an access token. It is kept for this browser tab only.</p>
+      <h2 id="token-title" data-t>Access token required</h2>
+      <p class="hint" data-t>This server asks for an access token. It is kept for this browser tab only.</p>
       <div class="row">
-        <label class="sr-only" for="token">Access token</label>
+        <label class="sr-only" for="token" data-t>Access token</label>
         <input id="token" type="password" autocomplete="off" aria-describedby="token-title" required>
-        <button type="submit" class="button">Unlock</button>
+        <button type="submit" class="button" data-t>Unlock</button>
       </div>
     </form>
 
     <section class="panel controls" id="controls-panel" aria-labelledby="controls-title">
-      <h2 id="controls-title">Data and model</h2>
+      <h2 id="controls-title" data-t>Data and model</h2>
       <form id="controls" autocomplete="off">
         <div class="field" id="mode-field">
-          <span class="label" id="mode-label">Analyse</span>
+          <span class="label" id="mode-label" data-t>Analyse</span>
           <div class="inline" role="radiogroup" aria-labelledby="mode-label">
-            <label class="choice"><input type="radio" name="mode" value="single" checked> One return series</label>
-            <label class="choice"><input type="radio" name="mode" value="portfolio"> A portfolio of assets</label>
+            <label class="choice" data-t-nodes><input type="radio" name="mode" value="single" checked> One return series</label>
+            <label class="choice" data-t-nodes><input type="radio" name="mode" value="portfolio"> A portfolio of assets</label>
           </div>
           <p class="hint" id="mode-hint"></p>
         </div>
 
         <div class="contents" id="portfolio-fields" hidden>
           <div class="field">
-            <label for="portfolio-file">Upload a CSV of several assets</label>
+            <label for="portfolio-file" data-t>Upload a CSV of several assets</label>
             <input id="portfolio-file" name="portfolio-file" type="file" accept=".csv,.txt,text/csv,text/plain">
-            <div class="inline" role="radiogroup" aria-label="What the uploaded values are">
-              <label class="choice"><input type="radio" name="portfolio-kind" value="returns" checked> Returns</label>
-              <label class="choice"><input type="radio" name="portfolio-kind" value="prices"> Prices</label>
+            <div class="inline" role="radiogroup" data-t-attr="aria-label" aria-label="What the uploaded values are">
+              <label class="choice" data-t-nodes><input type="radio" name="portfolio-kind" value="returns" checked> Returns</label>
+              <label class="choice" data-t-nodes><input type="radio" name="portfolio-kind" value="prices"> Prices</label>
             </div>
-            <p class="hint">A header row with the asset names, then <code>date,A,B,C</code> or just <code>A,B,C</code>.
+            <p class="hint" data-t-nodes>A header row with the asset names, then <code>date,A,B,C</code> or just <code>A,B,C</code>.
               Two to <span id="max-assets">10</span> assets with the same number of rows.</p>
-            <button type="button" class="button" id="portfolio-sample">Load a sample portfolio</button>
+            <button type="button" class="button" id="portfolio-sample" data-t>Load a sample portfolio</button>
           </div>
           <div class="field" id="weights-field" hidden>
-            <span class="label" id="weights-label">Weights</span>
+            <span class="label" id="weights-label" data-t>Weights</span>
             <table class="weights" aria-labelledby="weights-label"><tbody id="weights"></tbody></table>
             <p class="hint" id="weights-hint"></p>
-            <button type="button" class="button" id="weights-equal">Equal weights</button>
+            <button type="button" class="button" id="weights-equal" data-t>Equal weights</button>
           </div>
         </div>
 
@@ -65,63 +68,63 @@
           <label for="symbols" id="symbols-label">Load by symbol</label>
           <div class="row">
             <input id="symbols" type="text" maxlength="200" autocomplete="off" spellcheck="false" aria-describedby="market-hint">
-            <button type="button" class="button" id="market-load">Load</button>
+            <button type="button" class="button" id="market-load" data-t>Load</button>
           </div>
-          <label class="sr-only" for="market-base">Currency</label>
+          <label class="sr-only" for="market-base" data-t>Currency</label>
           <select id="market-base">
-            <option value="">Currency: automatic</option>
-            <option value="TRY">Convert to TRY</option>
-            <option value="USD">Convert to USD</option>
-            <option value="EUR">Convert to EUR</option>
-            <option value="GBP">Convert to GBP</option>
-            <option value="JPY">Convert to JPY</option>
-            <option value="CHF">Convert to CHF</option>
+            <option value="" data-t>Currency: automatic</option>
+            <option value="TRY" data-t>Convert to TRY</option>
+            <option value="USD" data-t>Convert to USD</option>
+            <option value="EUR" data-t>Convert to EUR</option>
+            <option value="GBP" data-t>Convert to GBP</option>
+            <option value="JPY" data-t>Convert to JPY</option>
+            <option value="CHF" data-t>Convert to CHF</option>
           </select>
-          <label class="sr-only" for="market-history">History</label>
+          <label class="sr-only" for="market-history" data-t>History</label>
           <select id="market-history">
-            <option value="1">Last year</option>
-            <option value="3">Last 3 years</option>
-            <option value="5" selected>Last 5 years</option>
-            <option value="10">Last 10 years</option>
-            <option value="all">All available</option>
+            <option value="1" data-t>Last year</option>
+            <option value="3" data-t>Last 3 years</option>
+            <option value="5" selected data-t>Last 5 years</option>
+            <option value="10" data-t>Last 10 years</option>
+            <option value="all" data-t>All available</option>
           </select>
           <p class="hint" id="market-hint"></p>
         </div>
 
         <div class="field" id="scenario-field">
-          <label for="scenario">Sample scenario</label>
+          <label for="scenario" data-t>Sample scenario</label>
           <select id="scenario" name="scenario"></select>
           <p class="hint" id="scenario-hint"></p>
         </div>
 
         <div class="field" id="file-field">
-          <label for="file">Or upload a CSV</label>
+          <label for="file" data-t>Or upload a CSV</label>
           <input id="file" name="file" type="file" accept=".csv,.txt,text/csv,text/plain">
-          <div class="inline" role="radiogroup" aria-label="What the uploaded values are">
-            <label class="choice"><input type="radio" name="kind" value="returns" checked> Returns</label>
-            <label class="choice"><input type="radio" name="kind" value="prices"> Prices</label>
+          <div class="inline" role="radiogroup" data-t-attr="aria-label" aria-label="What the uploaded values are">
+            <label class="choice" data-t-nodes><input type="radio" name="kind" value="returns" checked> Returns</label>
+            <label class="choice" data-t-nodes><input type="radio" name="kind" value="prices"> Prices</label>
           </div>
-          <p class="hint">One value per line, or <code>date,value</code>. Up to 5,000 rows. Returns are simple returns as
+          <p class="hint" data-t-nodes>One value per line, or <code>date,value</code>. Up to 5,000 rows. Returns are simple returns as
             fractions or percentages (<code>0.012</code> or <code>1.2%</code>).</p>
         </div>
 
         <div class="field">
-          <label for="confidence">Confidence level: <output id="confidence-out" for="confidence">95.0%</output></label>
+          <label for="confidence" data-t-nodes>Confidence level: <output id="confidence-out" for="confidence">95.0%</output></label>
           <input id="confidence" name="confidence" type="range" min="0.90" max="0.999" step="0.001" value="0.95">
         </div>
 
         <div class="field">
-          <label for="method">Estimation method</label>
+          <label for="method" data-t>Estimation method</label>
           <select id="method" name="method">
-            <option value="historical">Historical</option>
-            <option value="parametric">Parametric (normal)</option>
-            <option value="cornish_fisher">Cornish-Fisher</option>
+            <option value="historical" data-t>Historical</option>
+            <option value="parametric" data-t>Parametric (normal)</option>
+            <option value="cornish_fisher" data-t>Cornish-Fisher</option>
           </select>
           <p class="hint" id="method-hint"></p>
         </div>
 
         <div class="field">
-          <label for="window">Rolling window (periods)</label>
+          <label for="window" data-t>Rolling window (periods)</label>
           <input id="window" name="window" type="number" min="30" max="2000" step="10" value="250" inputmode="numeric">
         </div>
       </form>
@@ -130,21 +133,21 @@
     <div id="status" class="status" role="status" aria-live="polite"></div>
 
     <section class="panel history" id="history-panel" aria-labelledby="history-title" hidden>
-      <h2 id="history-title">Saved analyses</h2>
-      <p class="hint" id="history-empty">Nothing saved yet. Run an analysis and give it a name to keep it here.</p>
+      <h2 id="history-title" data-t>Saved analyses</h2>
+      <p class="hint" id="history-empty" data-t>Nothing saved yet. Run an analysis and give it a name to keep it here.</p>
       <div class="compare-bar" id="compare-bar" hidden>
-        <button type="button" class="button" id="compare" disabled>Compare selected</button>
-        <span class="hint" id="compare-hint">Tick two to four analyses to compare them side by side.</span>
+        <button type="button" class="button" id="compare" disabled data-t>Compare selected</button>
+        <span class="hint" id="compare-hint" data-t>Tick two to four analyses to compare them side by side.</span>
       </div>
       <ul id="history" class="runs"></ul>
     </section>
 
     <section class="panel" id="compare-panel" aria-labelledby="compare-title" hidden tabindex="-1">
       <div class="panel-head">
-        <h2 id="compare-title">Saved analyses side by side</h2>
-        <button type="button" class="button" id="compare-close">Close</button>
+        <h2 id="compare-title" data-t>Saved analyses side by side</h2>
+        <button type="button" class="button" id="compare-close" data-t>Close</button>
       </div>
-      <div class="table-scroll" role="region" aria-label="Comparison" tabindex="0">
+      <div class="table-scroll" role="region" data-t-attr="aria-label" aria-label="Comparison" tabindex="0">
         <table class="assets compare" id="table-compare"></table>
       </div>
     </section>
@@ -154,17 +157,17 @@
         <p id="provenance"></p>
         <div class="actions">
           <form id="save-form" class="save-form" autocomplete="off">
-            <label class="sr-only" for="run-name">Name for this analysis</label>
-            <input id="run-name" type="text" maxlength="120" placeholder="Name this analysis" required>
-            <button type="submit" class="button">Save</button>
+            <label class="sr-only" for="run-name" data-t>Name for this analysis</label>
+            <input id="run-name" type="text" maxlength="120" data-t-attr="placeholder" placeholder="Name this analysis" required>
+            <button type="submit" class="button" data-t>Save</button>
           </form>
-          <button id="report" type="button" class="button" hidden>Download report</button>
-          <button id="download" type="button" class="button">Download series (CSV)</button>
+          <button id="report" type="button" class="button" hidden data-t>Download report</button>
+          <button id="download" type="button" class="button" data-t>Download series (CSV)</button>
         </div>
       </div>
 
       <section aria-labelledby="glance-title">
-        <h2 id="glance-title">Risk at a glance</h2>
+        <h2 id="glance-title" data-t>Risk at a glance</h2>
         <dl id="headline" class="headline"></dl>
         <div class="tables">
           <table class="stats" id="table-drawdown"></table>
@@ -173,86 +176,86 @@
       </section>
 
       <section class="panel" id="portfolio-section" aria-labelledby="portfolio-title" hidden>
-        <h2 id="portfolio-title">Where the risk comes from</h2>
+        <h2 id="portfolio-title" data-t>Where the risk comes from</h2>
         <p class="takeaway" id="takeaway-portfolio"></p>
-        <div class="table-scroll" role="region" aria-label="Risk by asset" tabindex="0">
+        <div class="table-scroll" role="region" data-t-attr="aria-label" aria-label="Risk by asset" tabindex="0">
           <table class="assets" id="table-assets"></table>
         </div>
-        <h3 id="corr-title">Correlation of returns</h3>
-        <div class="table-scroll" role="region" aria-label="Correlation matrix" tabindex="0">
+        <h3 id="corr-title" data-t>Correlation of returns</h3>
+        <div class="table-scroll" role="region" data-t-attr="aria-label" aria-label="Correlation matrix" tabindex="0">
           <table class="corr" id="table-corr" aria-labelledby="corr-title"></table>
         </div>
       </section>
 
       <section class="panel" id="stress-section" aria-labelledby="stress-title" hidden>
-        <h2 id="stress-title">Stress: the worst stretches in the data</h2>
+        <h2 id="stress-title" data-t>Stress: the worst stretches in the data</h2>
         <p class="takeaway" id="takeaway-stress"></p>
-        <div class="table-scroll" role="region" aria-label="Worst windows" tabindex="0">
+        <div class="table-scroll" role="region" data-t-attr="aria-label" aria-label="Worst windows" tabindex="0">
           <table class="assets" id="table-stress"></table>
         </div>
       </section>
 
       <section class="panel" aria-labelledby="backtest-title">
-        <h2 id="backtest-title">Model validation</h2>
+        <h2 id="backtest-title" data-t>Model validation</h2>
         <p id="verdict" class="verdict"></p>
-        <div class="table-scroll" role="region" aria-label="Backtest results" tabindex="0">
+        <div class="table-scroll" role="region" data-t-attr="aria-label" aria-label="Backtest results" tabindex="0">
           <table class="tests" id="table-tests"></table>
         </div>
       </section>
 
       <section class="panel" aria-labelledby="growth-title">
-        <h2 id="growth-title">Growth of 100 and drawdown</h2>
+        <h2 id="growth-title" data-t>Growth of 100 and drawdown</h2>
         <p class="takeaway" id="takeaway-growth"></p>
         <div id="chart-growth" class="chart"></div>
       </section>
 
       <section class="panel" aria-labelledby="var-title">
-        <h2 id="var-title">Daily return against the VaR forecast</h2>
+        <h2 id="var-title" data-t>Daily return against the VaR forecast</h2>
         <p class="takeaway" id="takeaway-var"></p>
         <div id="chart-var" class="chart"></div>
       </section>
 
       <div class="pair">
         <section class="panel" aria-labelledby="dist-title">
-          <h2 id="dist-title">Distribution of returns</h2>
+          <h2 id="dist-title" data-t>Distribution of returns</h2>
           <p class="takeaway" id="takeaway-dist"></p>
           <div id="chart-dist" class="chart"></div>
         </section>
         <section class="panel" aria-labelledby="qq-title">
-          <h2 id="qq-title">Tail shape: QQ plot against the normal</h2>
+          <h2 id="qq-title" data-t>Tail shape: QQ plot against the normal</h2>
           <p class="takeaway" id="takeaway-qq"></p>
           <div id="chart-qq" class="chart"></div>
         </section>
       </div>
 
       <details class="panel definitions">
-        <summary>Definitions and assumptions</summary>
+        <summary data-t>Definitions and assumptions</summary>
         <ul id="notes"></ul>
         <dl>
-          <dt>Value at risk (VaR)</dt>
-          <dd>The one period return that is not expected to be breached at the chosen confidence level. Losses are negative.</dd>
-          <dt>Expected shortfall (ES)</dt>
-          <dd>The average return on the periods that breach the VaR. Never better than the VaR.</dd>
-          <dt>Breach</dt>
-          <dd>A period whose return is worse than the VaR forecast made <em>before</em> it, from the previous window of returns.</dd>
-          <dt>Kupiec test</dt>
-          <dd>Tests the <em>number</em> of breaches against the confidence level. Rejects too many (risk understated) and too few (overstated).</dd>
-          <dt>Christoffersen independence test</dt>
-          <dd>Tests whether a breach makes another more likely the next period, i.e. whether they cluster.</dd>
-          <dt>Conditional coverage</dt>
-          <dd>Kupiec and independence combined.</dd>
-          <dt>Basel traffic light</dt>
-          <dd>Green, yellow or red from the binomial probability of seeing this many breaches or fewer if the model were right (95% and 99.99% cut-offs).</dd>
-          <dt>Stress window</dt>
-          <dd>The worst compounded return over any 1, 5 or 20 consecutive periods in the data, with its dates. It is what actually happened, not a forecast.</dd>
-          <dt>Share of volatility</dt>
-          <dd>Each asset's weight times its covariance with the portfolio, as a fraction of the portfolio variance. The shares add up to 100%.</dd>
-          <dt>Share of expected shortfall</dt>
-          <dd>The weight times the asset's average return on the periods when the portfolio was in its tail (worse than its VaR). Adds up to 100%.</dd>
-          <dt>Diversification ratio</dt>
-          <dd>The weighted average volatility of the assets divided by the volatility of the portfolio. 1 means no diversification.</dd>
-          <dt>QQ plot</dt>
-          <dd>Sample quantiles, in standard deviations, against normal quantiles. Points on the dashed line mean normal tails; points below it in the left tail mean fatter losses than a normal distribution allows.</dd>
+          <dt data-t>Value at risk (VaR)</dt>
+          <dd data-t>The one period return that is not expected to be breached at the chosen confidence level. Losses are negative.</dd>
+          <dt data-t>Expected shortfall (ES)</dt>
+          <dd data-t>The average return on the periods that breach the VaR. Never better than the VaR.</dd>
+          <dt data-t>Breach</dt>
+          <dd>A period whose return is worse than the VaR forecast made <em data-t>before</em> it, from the previous window of returns.</dd>
+          <dt data-t>Kupiec test</dt>
+          <dd>Tests the <em data-t>number</em> of breaches against the confidence level. Rejects too many (risk understated) and too few (overstated).</dd>
+          <dt data-t>Christoffersen independence test</dt>
+          <dd data-t>Tests whether a breach makes another more likely the next period, i.e. whether they cluster.</dd>
+          <dt data-t>Conditional coverage</dt>
+          <dd data-t>Kupiec and independence combined.</dd>
+          <dt data-t>Basel traffic light</dt>
+          <dd data-t>Green, yellow or red from the binomial probability of seeing this many breaches or fewer if the model were right (95% and 99.99% cut-offs).</dd>
+          <dt data-t>Stress window</dt>
+          <dd data-t>The worst compounded return over any 1, 5 or 20 consecutive periods in the data, with its dates. It is what actually happened, not a forecast.</dd>
+          <dt data-t>Share of volatility</dt>
+          <dd data-t>Each asset's weight times its covariance with the portfolio, as a fraction of the portfolio variance. The shares add up to 100%.</dd>
+          <dt data-t>Share of expected shortfall</dt>
+          <dd data-t>The weight times the asset's average return on the periods when the portfolio was in its tail (worse than its VaR). Adds up to 100%.</dd>
+          <dt data-t>Diversification ratio</dt>
+          <dd data-t>The weighted average volatility of the assets divided by the volatility of the portfolio. 1 means no diversification.</dd>
+          <dt data-t>QQ plot</dt>
+          <dd data-t>Sample quantiles, in standard deviations, against normal quantiles. Points on the dashed line mean normal tails; points below it in the left tail mean fatter losses than a normal distribution allows.</dd>
         </dl>
       </details>
     </div>
@@ -260,11 +263,12 @@
 
   <footer class="site-footer">
     <div class="wrap">
-      <p>Risk analytics application for <a href="https://github.com/goldmansachs/gs-quant">gs-quant</a>. Sample data is simulated
-        (GARCH(1,1) with Student-t innovations). Not investment advice.</p>
+      <p><span data-t>Risk analytics application.</span> <span data-t>Built on</span> <a href="https://github.com/goldmansachs/gs-quant">gs-quant</a>.
+        <span data-t>Sample data is simulated (GARCH(1,1) with Student-t innovations). Not investment advice.</span></p>
     </div>
   </footer>
 
+  <script src="/static/i18n.js" defer></script>
   <script src="/static/app.js" defer></script>
 </body>
 </html>

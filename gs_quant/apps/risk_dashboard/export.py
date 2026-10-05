@@ -82,24 +82,21 @@ def render(payload: dict, title: Optional[str] = None) -> str:
     html = (STATIC_DIR / 'index.html').read_text(encoding='utf-8')
     css = (STATIC_DIR / 'styles.css').read_text(encoding='utf-8')
     app_js = (STATIC_DIR / 'app.js').read_text(encoding='utf-8')
+    i18n_js = (STATIC_DIR / 'i18n.js').read_text(encoding='utf-8')
     static_api = (PACKAGE_DIR / 'static_api.js').read_text(encoding='utf-8')
     data = json.dumps(payload, separators=(',', ':'), allow_nan=False)
 
     replacements = {
         '<link rel="stylesheet" href="/static/styles.css">': f'<style>\n{css}\n</style>',
-        '<script src="/static/app.js" defer></script>': (
-            f'<script>window.__RISK_DATA__ = {_script_safe(data)};</script>\n'
-            f'<script>\n{_script_safe(static_api)}\n</script>\n'
-            f'<script>\n{_script_safe(app_js)}\n</script>'
-        ),
+        '<script src="/static/i18n.js" defer></script>': f'<script>window.__RISK_DATA__ = {_script_safe(data)};</script>\n<script>\n{_script_safe(static_api)}\n</script>\n<script>\n{_script_safe(i18n_js)}\n</script>',
+        '<script src="/static/app.js" defer></script>': f'<script>\n{_script_safe(app_js)}\n</script>',
     }
     for old, new in replacements.items():
         if old not in html:
             raise ValueError(f'Expected {old!r} in index.html')
         html = html.replace(old, new)
-    html = html.replace('Risk analytics application for', 'Static copy of the risk analytics application for')
     if title:
-        html = html.replace('<title>Risk Analytics Dashboard</title>', f'<title>{escape(title)}</title>')
+        html = html.replace('<title data-t>Risk Analytics Dashboard</title>', f'<title data-t>{escape(title)}</title>')
     return html
 
 

@@ -43,6 +43,11 @@ reason a freshly installed command is "not recognized" on Windows. It listens on
   the notes of the analysis. Not covered: holiday calendars differ between markets, so only dates on which every symbol
   traded are used.
   Daily closes only: there are no intraday or real-time prices. Switch it off with `RISK_APP_MARKET_DATA=off`.
+- **Turkish and English**: the page opens in the language of the browser and the button in the header switches it (the
+  choice is remembered in the browser). Turkish writes numbers its own way: a decimal comma and the percent sign in front,
+  `−%0,92`. Assumptions and the usual error messages that come from the server are translated by the page too; a message it
+  does not know stays in English. The texts are in `static/i18n.js`: the page is written in English and a test checks that
+  every text has a Turkish translation with the same placeholders. To add a language, add a table there.
 - **Stress**: the worst 1, 5 and 20 consecutive periods that actually occurred in the data, with their dates, how many
   times the VaR the worst period was and, for a portfolio, what each asset did over the same dates.
 - **Saved analyses**: name an analysis and it is kept in a SQLite file. Opening it recomputes it, so it always reflects
@@ -145,7 +150,7 @@ Invalid input gets a `422` with a message that says what is wrong.
 | `settings.py` | Configuration from the environment |
 | `app.py` | Starlette app: JSON API, static files, token check, request ids, security headers |
 | `report.py`, `export.py`, `static_api.js` | The self-contained HTML report and the static demo export |
-| `static/` | The page: `index.html`, `styles.css` and `app.js`. No framework, no third party code |
+| `static/` | The page: `index.html`, `styles.css`, `app.js` and the translations in `i18n.js`. No framework, no third party code |
 | `__main__.py` | The `gs-quant-risk` command |
 
 Tests are in `gs_quant/test/apps`: `python -m pytest gs_quant/test/apps`. The browser test there needs Playwright and

@@ -422,8 +422,10 @@ class TestRunsApi:
 
         assert client.get('/api/runs').json()[0]['name'] == name
         assert '</script><img' not in html and '<\\/script><img' in html  # inside the data, the tag cannot close
-        assert '<title>Risk report: &lt;/script&gt;&lt;img' in html
-        assert len(report.INLINE.findall(html)) == 4  # the data, the static api, the script and the style: no more
+        assert '<title data-t>Risk report: &lt;/script&gt;&lt;img' in html
+        assert (
+            len(report.INLINE.findall(html)) == 5
+        )  # the data, the static api, the translations, the script and the style: no more
 
     def test_report_is_a_self_contained_download_with_a_matching_policy(self, client):
         meta = self.save(client, 'Quarterly').json()

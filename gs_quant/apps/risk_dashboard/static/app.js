@@ -9,16 +9,19 @@
 (() => {
   'use strict';
 
+  const { t } = window.I18n;
+  const isTurkish = () => window.I18n.lang === 'tr';
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const MAX_ROWS = 5000;
   const MINUS = '−';
   const DASH = '—';
-  const METHOD_HINTS = {
-    historical: 'The empirical quantile of the window. No distribution assumed; noisy in the far tail.',
-    parametric: 'A normal distribution fitted to the window. Smooth, but understates fat tails.',
-    cornish_fisher: 'A normal quantile corrected for skewness and kurtosis. Suits moderately fat tails.',
-  };
-  const METHOD_NAMES = { historical: 'historical', parametric: 'parametric', cornish_fisher: 'Cornish-Fisher' };
+  const methodHint = (method) =>
+    ({
+      historical: t('The empirical quantile of the window. No distribution assumed; noisy in the far tail.'),
+      parametric: t('A normal distribution fitted to the window. Smooth, but understates fat tails.'),
+      cornish_fisher: t('A normal quantile corrected for skewness and kurtosis. Suits moderately fat tails.'),
+    })[method];
+  const methodName = (method) => ({ historical: t('historical'), parametric: t('parametric'), cornish_fisher: 'Cornish-Fisher' })[method] || method;
 
   const $ = (selector) => document.querySelector(selector);
 
@@ -58,7 +61,7 @@
     try {
       response = await fetch(url, { ...options, headers });
     } catch (error) {
-      throw new ApiError('Could not reach the server. Is it still running?', 0);
+      throw new ApiError(t('Could not reach the server. Is it still running?'), 0);
     }
     if (!response.ok) {
       let payload = null;
@@ -67,8 +70,8 @@
       } catch (error) {
         /* not JSON */
       }
-      const fallback = response.status === 401 ? 'A valid access token is required.' : `The server answered with status ${response.status}`;
-      throw new ApiError((payload && payload.error) || fallback, response.status);
+      const fallback = response.status === 401 ? t('A valid access token is required.') : t('The server answered with status {status}', { status: response.status });
+      throw new ApiError(window.I18n.server((payload && payload.error) || fallback), response.status);
     }
     return response;
   }
@@ -131,11 +134,19 @@
 
   const isNumber = (v) => typeof v === 'number' && Number.isFinite(v);
   const signed = (text) => text.replace(/^-(0\.0+)$/, '$1').replace('-', MINUS);
-  const pct = (v, digits = 2) => (isNumber(v) ? `${signed((v * 100).toFixed(digits))}%` : DASH);
-  const num = (v, digits = 2) => (isNumber(v) ? signed(v.toFixed(digits)) : DASH);
-  const pValue = (p) => (p < 0.001 ? '<0.001' : p.toFixed(3));
-  const confidenceLabel = (c) => `${(c * 100).toFixed(1)}%`;
-  const integer = (v) => Math.round(v).toLocaleString('en-US');
+  // Turkish writes a decimal comma and puts the percent sign in front of the number: −%0,92
+  const decimal = (text) => (isTurkish() ? text.replace('.', ',') : text);
+  const percentText = (value, digits) => {
+    const text = signed(value.toFixed(digits));
+    if (!isTurkish()) return `${text}%`;
+    const negative = text.startsWith(MINUS);
+    return `${negative ? MINUS : ''}%${decimal(negative ? text.slice(1) : text)}`;
+  };
+  const pct = (v, digits = 2) => (isNumber(v) ? percentText(v * 100, digits) : DASH);
+  const num = (v, digits = 2) => (isNumber(v) ? decimal(signed(v.toFixed(digits))) : DASH);
+  const pValue = (p) => (p < 0.001 ? decimal('<0.001') : decimal(p.toFixed(3)));
+  const confidenceLabel = (c) => percentText(c * 100, 1);
+  const integer = (v) => Math.round(v).toLocaleString(isTurkish() ? 'tr-TR' : 'en-US');
 
   function element(tag, { className, text, attributes } = {}, children = []) {
     const node = document.createElement(tag);
@@ -407,22 +418,24 @@
     return { test, ind, expected, afterBreach, afterQuiet, tooMany: test.observed_rate > test.expected_rate };
   }
 
+  const zoneName = (zone) => t(zone[0].toUpperCase() + zone.slice(1));
+
   function verdictSentence(result) {
     const { test, ind, expected, afterBreach, afterQuiet, tooMany } = breachFacts(result);
     const light = test.traffic_light;
-    const count = `${test.exceedances} breaches in ${integer(test.observations)} periods against ${expected.toFixed(1)} expected`;
+    const count = t('{n} breaches in {periods} periods against {expected} expected', { n: test.exceedances, periods: integer(test.observations), expected: num(expected, 1) });
     const clauses = [];
     if (test.reject) {
-      clauses.push(`${count}: the model ${tooMany ? 'understates' : 'overstates'} risk (Kupiec p ${pValue(test.p_value)}).`);
+      clauses.push(tooMany ? t('{count}: the model understates risk (Kupiec p {p}).', { count, p: pValue(test.p_value) }) : t('{count}: the model overstates risk (Kupiec p {p}).', { count, p: pValue(test.p_value) }));
     } else {
-      clauses.push(`${count}: consistent with the confidence level (Kupiec p ${pValue(test.p_value)}).`);
+      clauses.push(t('{count}: consistent with the confidence level (Kupiec p {p}).', { count, p: pValue(test.p_value) }));
     }
     if (ind.independence_reject && isNumber(afterBreach) && isNumber(afterQuiet)) {
-      clauses.push(`Breaches cluster: the chance of one the day after a breach is ${pct(afterBreach, 0)}, against ${pct(afterQuiet, 0)} otherwise.`);
+      clauses.push(t('Breaches cluster: the chance of one the day after a breach is {after}, against {otherwise} otherwise.', { after: pct(afterBreach, 0), otherwise: pct(afterQuiet, 0) }));
     } else if (test.exceedances > 0) {
-      clauses.push('No evidence that breaches cluster in time.');
+      clauses.push(t('No evidence that breaches cluster in time.'));
     }
-    if (light.zone !== 'green') clauses.push(`Basel traffic light: ${light.zone}.`);
+    if (light.zone !== 'green') clauses.push(t('Basel traffic light: {zone}.', { zone: zoneName(light.zone) }));
     return clauses.join(' ');
   }
 
@@ -435,10 +448,10 @@
     const conf = confidenceLabel(settings.confidence);
     const risk = headlineRisk(result);
     const items = [
-      ['Annualized return', pct(summary.annualized_return), 'compound'],
-      ['Annualized volatility', pct(summary.annualized_volatility), `${settings.periods_per_year} periods per year`],
-      [`${conf} value at risk`, pct(risk.var), `one period, ${METHOD_NAMES[settings.method]}`],
-      [`${conf} expected shortfall`, pct(risk.es), 'average return on breach periods'],
+      [t('Annualized return'), pct(summary.annualized_return), t('compound')],
+      [t('Annualized volatility'), pct(summary.annualized_volatility), t('{n} periods per year', { n: settings.periods_per_year })],
+      [t('{conf} value at risk', { conf }), pct(risk.var), t('one period, {method}', { method: methodName(settings.method) })],
+      [t('{conf} expected shortfall', { conf }), pct(risk.es), t('average return on breach periods')],
     ];
     const list = $('#headline');
     list.replaceChildren();
@@ -460,26 +473,26 @@
 
   function renderTables(result) {
     const s = result.summary;
-    fillTable($('#table-drawdown'), 'Drawdown and risk-adjusted return', [
-      ['Maximum drawdown', pct(s.max_drawdown)],
-      ['Worst period', pct(s.worst_period)],
-      ['Sortino ratio', num(s.sortino_ratio)],
-      ['Calmar ratio', num(s.calmar_ratio)],
-      ['Ulcer index', pct(s.ulcer_index)],
+    fillTable($('#table-drawdown'), t('Drawdown and risk-adjusted return'), [
+      [t('Maximum drawdown'), pct(s.max_drawdown)],
+      [t('Worst period'), pct(s.worst_period)],
+      [t('Sortino ratio'), num(s.sortino_ratio)],
+      [t('Calmar ratio'), num(s.calmar_ratio)],
+      [t('Ulcer index'), pct(s.ulcer_index)],
     ]);
-    fillTable($('#table-shape'), 'Shape of the distribution', [
-      ['Skewness', num(s.skewness)],
-      ['Excess kurtosis (0 = normal)', num(s.excess_kurtosis)],
-      ['Best period', pct(s.best_period)],
-      ['Downside deviation (annualized)', pct(s.downside_deviation)],
-      ['Omega ratio', num(s.omega_ratio)],
+    fillTable($('#table-shape'), t('Shape of the distribution'), [
+      [t('Skewness'), num(s.skewness)],
+      [t('Excess kurtosis (0 = normal)'), num(s.excess_kurtosis)],
+      [t('Best period'), pct(s.best_period)],
+      [t('Downside deviation (annualized)'), pct(s.downside_deviation)],
+      [t('Omega ratio'), num(s.omega_ratio)],
     ]);
   }
 
   function resultCell(rejected) {
     return element('span', {
       className: `result ${rejected ? 'bad' : 'ok'}`,
-      text: `${rejected ? '✕ Rejected' : '✓ Not rejected'}`,
+      text: rejected ? t('✕ Rejected') : t('✓ Not rejected'),
     });
   }
 
@@ -488,32 +501,32 @@
     const light = test.traffic_light;
     const zoneClass = { green: 'ok', yellow: 'warn', red: 'bad' }[light.zone];
     const rows = [
-      ['Kupiec', 'Number of breaches against the confidence level', `LR ${num(test.lr_statistic)}`, pValue(test.p_value), resultCell(test.reject)],
+      ['Kupiec', t('Number of breaches against the confidence level'), `LR ${num(test.lr_statistic)}`, pValue(test.p_value), resultCell(test.reject)],
       [
-        'Christoffersen independence',
-        `Do breaches cluster? (${ind.n11} of ${ind.n10 + ind.n11} breaches were followed by another)`,
+        t('Christoffersen independence'),
+        t('Do breaches cluster? ({n} of {total} breaches were followed by another)', { n: ind.n11, total: ind.n10 + ind.n11 }),
         `LR ${num(ind.independence_lr)}`,
         pValue(ind.independence_p_value),
         resultCell(ind.independence_reject),
       ],
       [
-        'Conditional coverage',
-        'Number and timing of breaches together',
+        t('Conditional coverage'),
+        t('Number and timing of breaches together'),
         `LR ${num(ind.conditional_coverage_lr)}`,
         pValue(ind.conditional_coverage_p_value),
         resultCell(ind.conditional_coverage_reject),
       ],
       [
-        'Basel traffic light',
-        `${test.exceedances} breaches against ${expected.toFixed(1)} expected`,
+        t('Basel traffic light'),
+        t('{n} breaches against {expected} expected', { n: test.exceedances, expected: num(expected, 1) }),
         `F = ${pct(light.cumulative_probability, 3)}`,
         DASH,
-        element('span', { className: `result ${zoneClass}`, text: light.zone[0].toUpperCase() + light.zone.slice(1) }),
+        element('span', { className: `result ${zoneClass}`, text: zoneName(light.zone) }),
       ],
     ];
     const table = $('#table-tests');
     table.replaceChildren();
-    const head = element('tr', {}, ['Test', 'Statistic', 'p-value', 'Result'].map((h) => element('th', { text: h, attributes: { scope: 'col' } })));
+    const head = element('tr', {}, [t('Test'), t('Statistic'), t('p-value'), t('Result')].map((h) => element('th', { text: h, attributes: { scope: 'col' } })));
     table.appendChild(element('thead', {}, [head]));
     const body = element('tbody');
     for (const [name, what, statistic, p, outcome] of rows) {
@@ -536,38 +549,39 @@
     const simulated = dataset && dataset.simulated;
     const saved = dataset && dataset.saved;
     const market = dataset && dataset.market;
-    const tagText = saved ? 'Saved report' : market ? 'Market data' : simulated ? 'Simulated data' : 'Your data';
+    const tagText = saved ? t('Saved report') : market ? t('Market data') : simulated ? t('Simulated data') : t('Your data');
     const tag = element('span', { className: `tag${simulated ? '' : ' real'}`, text: tagText });
-    const period = /^\d{4}-\d{2}-\d{2}$/.test(dates[0]) ? `${dates[0]} to ${dates[dates.length - 1]}` : `${dates.length} observations`;
-    const assets = result.portfolio ? `${result.portfolio.assets.length} assets` : '';
-    let label = 'Uploaded series';
-    if (dataset && dataset.title) label = simulated ? `${dataset.title} scenario` : dataset.title;
-    else if (assets) label = 'Uploaded portfolio';
-    const parts = [label, assets, `${integer(result.summary.observations)} returns`, period];
-    if (saved && dataset.createdAt) parts.push(`saved ${dataset.createdAt.slice(0, 10)}`);
-    if (market) parts.push(`prices from ${market}`);
+    const period = /^\d{4}-\d{2}-\d{2}$/.test(dates[0]) ? t('{from} to {to}', { from: dates[0], to: dates[dates.length - 1] }) : t('{n} observations', { n: dates.length });
+    const assets = result.portfolio ? t('{n} assets', { n: result.portfolio.assets.length }) : '';
+    let label = t('Uploaded series');
+    if (dataset && dataset.title) label = simulated ? t('{title} scenario', { title: t(dataset.title) }) : dataset.title;
+    else if (assets) label = t('Uploaded portfolio');
+    const parts = [label, assets, t('{n} returns', { n: integer(result.summary.observations) }), period];
+    if (saved && dataset.createdAt) parts.push(t('saved {date}', { date: dataset.createdAt.slice(0, 10) }));
+    if (market) parts.push(t('prices from {source}', { source: market }));
     $('#provenance').replaceChildren(tag, parts.filter(Boolean).join(' · '));
   }
 
   function renderNotes(result) {
     const notes = [
-      `Rolling window of ${result.settings.window} periods, ${result.settings.periods_per_year} periods per year.`,
-      'Every figure is a fraction of the portfolio, and losses are negative.',
-      ...((state.dataset && state.dataset.notes) || []),
-      ...result.assumptions,
+      t('Rolling window of {window} periods, {n} periods per year.', { window: result.settings.window, n: result.settings.periods_per_year }),
+      t('Every figure is a fraction of the portfolio, and losses are negative.'),
+      ...((state.dataset && state.dataset.notes) || []).map(window.I18n.server),
+      ...result.assumptions.map(window.I18n.server),
     ];
     const list = $('#notes');
     list.replaceChildren();
     for (const note of notes) list.appendChild(element('li', { text: note }));
   }
 
-  function setTakeaway(id, parts) {
+  // Text with **strong** parts, so that a translation can put them wherever its word order needs them
+  function setTakeaway(id, text) {
     const node = $(id);
     node.replaceChildren();
-    for (const part of parts) {
-      if (typeof part === 'string') node.append(part);
-      else node.append(element('strong', { text: part.strong }));
-    }
+    text.split('**').forEach((piece, i) => {
+      if (i % 2) node.append(element('strong', { text: piece }));
+      else if (piece) node.append(piece);
+    });
   }
 
   // ------------------------------------------------------------------------------------------------------------------
@@ -592,19 +606,15 @@
 
   function portfolioTakeaway(details, conf) {
     const lessVolatile = 1 - 1 / details.diversification_ratio;
-    const parts = [
-      'Diversification ratio ',
-      { strong: num(details.diversification_ratio, 2) },
-      `: the portfolio is ${pct(lessVolatile, 0)} less volatile than the weighted average of its assets. `,
-    ];
+    let text = t('Diversification ratio **{ratio}**: the portfolio is {less} less volatile than the weighted average of its assets.', { ratio: num(details.diversification_ratio, 2), less: pct(lessVolatile, 0) });
     const tail = [...details.assets].filter((a) => isNumber(a.es_contribution));
     const worst = tail.sort((x, y) => y.es_contribution - y.weight - (x.es_contribution - x.weight))[0];
     if (worst && worst.es_contribution - worst.weight > 0.05) {
-      parts.push({ strong: worst.name }, ` is ${pct(worst.weight, 0)} of the portfolio but ${pct(worst.es_contribution, 0)} of the loss on the ${details.tail_periods} worst periods (the ${conf} tail).`);
+      text += ' ' + t('**{name}** is {weight} of the portfolio but {loss} of the loss on the {n} worst periods (the {conf} tail).', { name: worst.name, weight: pct(worst.weight, 0), loss: pct(worst.es_contribution, 0), n: details.tail_periods, conf });
     } else {
-      parts.push(`Tail losses are spread roughly in line with the weights (${details.tail_periods} periods in the ${conf} tail).`);
+      text += ' ' + t('Tail losses are spread roughly in line with the weights ({n} periods in the {conf} tail).', { n: details.tail_periods, conf });
     }
-    setTakeaway('#takeaway-portfolio', parts);
+    setTakeaway('#takeaway-portfolio', text);
   }
 
   function renderPortfolio(result) {
@@ -616,7 +626,7 @@
 
     const table = $('#table-assets');
     table.replaceChildren();
-    const heads = ['Asset', 'Weight', 'Volatility', `${conf} VaR alone`, 'Share of volatility', 'Share of expected shortfall'];
+    const heads = [t('Asset'), t('Weight'), t('Volatility'), t('{conf} VaR alone', { conf }), t('Share of volatility'), t('Share of expected shortfall')];
     table.appendChild(element('thead', {}, [element('tr', {}, heads.map((h) => element('th', { text: h, attributes: { scope: 'col' } })))]));
     const body = element('tbody');
     for (const asset of details.assets) {
@@ -633,12 +643,12 @@
     }
     body.appendChild(
       element('tr', {}, [
-        element('th', { text: 'Portfolio', attributes: { scope: 'row' } }),
+        element('th', { text: t('Portfolio'), attributes: { scope: 'row' } }),
         element('td', { text: pct(details.assets.reduce((sum, a) => sum + a.weight, 0), 1) }),
         element('td', { text: pct(details.portfolio_volatility, 1) }),
         element('td', { text: pct(headlineRisk(result).var, 2) }),
-        element('td', { text: '100.0%' }),
-        element('td', { text: '100.0%' }),
+        element('td', { text: percentText(100, 1) }),
+        element('td', { text: percentText(100, 1) }),
       ]),
     );
     table.appendChild(body);
@@ -665,24 +675,24 @@
     const conf = confidenceLabel(result.settings.confidence);
     const worstDay = windows.find((w) => w.periods === 1);
     const risk = headlineRisk(result);
-    const parts = [];
+    const sentences = [];
     if (worstDay && isNumber(risk.var) && risk.var < 0) {
-      parts.push('The worst single period lost ', { strong: pct(worstDay.return, 2) }, ` on ${worstDay.start}, ${num(worstDay.return / risk.var, 1)} times the ${conf} VaR. `);
+      sentences.push(t('The worst single period lost **{loss}** on {date}, {times} times the {conf} VaR.', { loss: pct(worstDay.return, 2), date: worstDay.start, times: num(worstDay.return / risk.var, 1), conf }));
     }
     const longest = windows[windows.length - 1];
-    parts.push(`The worst ${longest.periods} periods in a row lost `, { strong: pct(longest.return, 1) }, ` (${longest.start} to ${longest.end}).`);
-    setTakeaway('#takeaway-stress', parts);
+    sentences.push(t('The worst {n} periods in a row lost **{loss}** ({from} to {to}).', { n: longest.periods, loss: pct(longest.return, 1), from: longest.start, to: longest.end }));
+    setTakeaway('#takeaway-stress', sentences.join(' '));
 
     const names = windows[0].assets ? windows[0].assets.map((a) => a.name) : [];
     const table = $('#table-stress');
     table.replaceChildren();
-    const heads = ['Window', 'Return', 'From', 'To', ...names];
+    const heads = [t('Window'), t('Return'), t('From'), t('To'), ...names];
     table.appendChild(element('thead', {}, [element('tr', {}, heads.map((h) => element('th', { text: h, attributes: { scope: 'col' } })))]));
     const body = element('tbody');
     for (const w of windows) {
       body.appendChild(
         element('tr', {}, [
-          element('th', { text: w.periods === 1 ? 'Worst period' : `Worst ${w.periods} periods`, attributes: { scope: 'row' } }),
+          element('th', { text: w.periods === 1 ? t('Worst period') : t('Worst {n} periods', { n: w.periods }), attributes: { scope: 'row' } }),
           element('td', { text: pct(w.return, 2) }),
           element('td', { text: w.start }),
           element('td', { text: w.end }),
@@ -702,14 +712,8 @@
     const growth = rawGrowth.map((g) => (isNumber(g) ? g * 100 : g));
     const n = dates.length;
     const episode = result.worst_drawdown;
-    const label = `Growth of 100 invested, ending at ${num(growth[n - 1], 1)}. Maximum drawdown ${pct(episode.depth, 1)}, from ${dates[episode.peak]} to ${dates[episode.trough]}.`;
-    setTakeaway('#takeaway-growth', [
-      'Ends at ',
-      { strong: num(growth[n - 1], 1) },
-      '. Deepest fall ',
-      { strong: pct(episode.depth, 1) },
-      ` from the peak on ${dates[episode.peak]} to the trough on ${dates[episode.trough]}.`,
-    ]);
+    const label = t('Growth of 100 invested, ending at {end}. Maximum drawdown {depth}, from {from} to {to}.', { end: num(growth[n - 1], 1), depth: pct(episode.depth, 1), from: dates[episode.peak], to: dates[episode.trough] });
+    setTakeaway('#takeaway-growth', t('Ends at **{end}**. Deepest fall **{depth}** from the peak on {from} to the trough on {to}.', { end: num(growth[n - 1], 1), depth: pct(episode.depth, 1), from: dates[episode.peak], to: dates[episode.trough] }));
 
     registerChart(container, (width) => {
       const compact = width < 520;
@@ -732,7 +736,7 @@
       svg.appendChild(svgEl('rect', { x: x0.toFixed(1), y: growthTop, width: Math.max(x1 - x0, 1).toFixed(1), height: growthBottom - growthTop, class: 'span' }));
       svg.appendChild(svgEl('line', { x1: left, x2: right, y1: yGrowth(100).toFixed(1), y2: yGrowth(100).toFixed(1), class: 'line ref' }));
       svg.appendChild(svgEl('path', { d: linePath(growth, x, yGrowth), class: 'line' }));
-      axisTitle(svg, 'Growth of 100', { x: 14, y: (growthTop + growthBottom) / 2, rotate: true });
+      axisTitle(svg, t('Growth of 100'), { x: 14, y: (growthTop + growthBottom) / 2, rotate: true });
 
       const [dMin] = extent([drawdown]);
       const dScale = niceTicks(Math.min(dMin, -0.01), 0, 3);
@@ -741,14 +745,14 @@
       svg.appendChild(svgEl('rect', { x: x0.toFixed(1), y: ddTop, width: Math.max(x1 - x0, 1).toFixed(1), height: ddBottom - ddTop, class: 'span' }));
       svg.appendChild(svgEl('path', { d: areaPath(drawdown, x, yDd, yDd(0).toFixed(1)), class: 'area' }));
       const labelX = Math.min(Math.max(x1, left + 60), right - 60);
-      svg.appendChild(svgEl('text', { x: labelX.toFixed(1), y: (ddTop - 6).toFixed(1), 'text-anchor': 'middle', class: 'annotation' }, `Max drawdown ${pct(episode.depth, 1)}`));
+      svg.appendChild(svgEl('text', { x: labelX.toFixed(1), y: (ddTop - 6).toFixed(1), 'text-anchor': 'middle', class: 'annotation' }, t('Max drawdown {depth}', { depth: pct(episode.depth, 1) })));
       dateAxis(svg, { labels: dates, x, left, right, y: ddBottom });
-      axisTitle(svg, 'Drawdown', { x: 14, y: (ddTop + ddBottom) / 2, rotate: true });
+      axisTitle(svg, t('Drawdown'), { x: 14, y: (ddTop + ddBottom) / 2, rotate: true });
 
       container.appendChild(svg);
       attachCrosshair({
         container, svg, count: n, left, right, top: growthTop, bottom: ddBottom, x,
-        describe: (i) => [[dates[i]], ['Growth of 100', num(growth[i], 1)], ['Drawdown', pct(drawdown[i], 1)]],
+        describe: (i) => [[dates[i]], [t('Growth of 100'), num(growth[i], 1)], [t('Drawdown'), pct(drawdown[i], 1)]],
       });
     });
   }
@@ -758,22 +762,18 @@
     const n = dates.length;
     const conf = confidenceLabel(result.settings.confidence);
     const { test, expected } = breachFacts(result);
-    const label = `Daily returns against the ${conf} value at risk forecast: ${test.exceedances} breaches in ${test.observations} periods, ${expected.toFixed(1)} expected.`;
-    setTakeaway('#takeaway-var', [
-      'The forecast was breached ',
-      { strong: `${test.exceedances} times` },
-      ` in ${integer(test.observations)} periods (${expected.toFixed(1)} expected at ${conf}). Each return is judged against the forecast made the period before.`,
-    ]);
+    const label = t('Daily returns against the {conf} value at risk forecast: {n} breaches in {periods} periods, {expected} expected.', { conf, n: test.exceedances, periods: test.observations, expected: num(expected, 1) });
+    setTakeaway('#takeaway-var', t('The forecast was breached **{n} times** in {periods} periods ({expected} expected at {conf}). Each return is judged against the forecast made the period before.', { n: test.exceedances, periods: integer(test.observations), expected: num(expected, 1), conf }));
 
     registerChart(container, (width) => {
       const compact = width < 520;
       const left = compact ? 56 : 68;
       const right = width - 12;
       const legendItems = [
-        { kind: 'bar', label: 'Return', className: 'bar' },
-        { kind: 'bar', label: 'Breach', className: 'bar breach-key' },
-        { label: `${conf} VaR` },
-        { label: 'Expected shortfall', className: 'second dashed' },
+        { kind: 'bar', label: t('Return'), className: 'bar' },
+        { kind: 'bar', label: t('Breach'), className: 'bar breach-key' },
+        { label: t('{conf} VaR', { conf }) },
+        { label: t('Expected shortfall'), className: 'second dashed' },
       ];
       const top = plotTop(legendLayout(legendItems, left, right).rows);
       const bottom = top + 240;
@@ -801,15 +801,15 @@
       svg.appendChild(svgEl('path', { d: linePath(es, x, y), class: 'line second dashed' }));
       svg.appendChild(svgEl('path', { d: breached, class: 'bars breach', 'stroke-width': Math.max(Number(barWidth), 2).toFixed(2) }));
       dateAxis(svg, { labels: dates, x, left, right, y: bottom });
-      axisTitle(svg, 'Daily return', { x: 14, y: (top + bottom) / 2, rotate: true });
+      axisTitle(svg, t('Daily return'), { x: 14, y: (top + bottom) / 2, rotate: true });
       legend(svg, legendItems, left, 14, right);
 
       container.appendChild(svg);
       attachCrosshair({
         container, svg, count: n, left, right, top, bottom, x,
         describe: (i) => {
-          const lines = [[dates[i]], ['Return', pct(returns[i], 2)], ['VaR forecast', pct(varSeries[i], 2)], ['Expected shortfall', pct(es[i], 2)]];
-          if (breach[i]) lines.push(['Breach']);
+          const lines = [[dates[i]], [t('Return'), pct(returns[i], 2)], [t('VaR forecast'), pct(varSeries[i], 2)], [t('Expected shortfall'), pct(es[i], 2)]];
+          if (breach[i]) lines.push([t('Breach')]);
           return lines;
         },
       });
@@ -819,15 +819,10 @@
   function drawDistribution(container, result) {
     const headline = headlineRisk(result);
     const { centres, counts, normal_counts: normal, width: binWidth, outliers_below: below, outliers_above: above } = result.histogram;
-    const label = `Histogram of returns with the normal curve, value at risk ${pct(headline.var, 2)} and expected shortfall ${pct(headline.es, 2)}.`;
+    const label = t('Histogram of returns with the normal curve, value at risk {var} and expected shortfall {es}.', { var: pct(headline.var, 2), es: pct(headline.es, 2) });
     const conf = confidenceLabel(result.settings.confidence);
-    setTakeaway('#takeaway-dist', [
-      `Central 99% of returns${below + above ? ` (${below + above} outliers not shown)` : ''}. VaR `,
-      { strong: pct(headline.var, 2) },
-      ', expected shortfall ',
-      { strong: pct(headline.es, 2) },
-      ` at ${conf}.`,
-    ]);
+    const outliers = below + above ? ' ' + t('({n} outliers not shown)', { n: below + above }) : '';
+    setTakeaway('#takeaway-dist', t('Central 99% of returns.{outliers} VaR **{var}**, expected shortfall **{es}** at {conf}.', { outliers, var: pct(headline.var, 2), es: pct(headline.es, 2), conf }));
 
     registerChart(container, (width) => {
       const compact = width < 520;
@@ -852,8 +847,8 @@
       });
       svg.appendChild(svgEl('path', { d: linePath(normal, (i) => x(centres[i]), y), class: 'normal' }));
       xAxisNumeric(svg, { ticks: xScale.ticks, x, left, right, y: bottom, format: (v) => pct(v, 0) });
-      axisTitle(svg, 'Daily return', { x: (left + right) / 2, y: bottom + 36 });
-      axisTitle(svg, 'Days', { x: 12, y: (top + bottom) / 2, rotate: true });
+      axisTitle(svg, t('Daily return'), { x: (left + right) / 2, y: bottom + 36 });
+      axisTitle(svg, t('Days'), { x: 12, y: (top + bottom) / 2, rotate: true });
 
       // label the markers on the chart itself rather than in a legend
       const marks = [
@@ -868,7 +863,7 @@
         svg.appendChild(svgEl('text', { x: (px + (anchor === 'end' ? -4 : 4)).toFixed(1), y: top - 8, 'text-anchor': anchor, class: `marker-label ${kind}` }, `${name} ${pct(value, 2)}`));
       });
       svg.appendChild(svgEl('line', { x1: right - 88, x2: right - 70, y1: top + 6, y2: top + 6, class: 'normal' }));
-      svg.appendChild(svgEl('text', { x: right - 64, y: top + 10, class: 'label' }, 'Normal fit'));
+      svg.appendChild(svgEl('text', { x: right - 64, y: top + 10, class: 'label' }, t('Normal fit')));
       container.appendChild(svg);
     });
   }
@@ -879,14 +874,14 @@
     const conf = confidenceLabel(result.settings.confidence);
     const worst = sample[0];
     const normalWorst = theoretical[0];
-    const label = `QQ plot of standardised returns against normal quantiles. The worst return is ${num(worst, 1)} standard deviations; a normal sample of this size would reach about ${num(normalWorst, 1)}.`;
+    const label = t('QQ plot of standardised returns against normal quantiles. The worst return is {worst} standard deviations; a normal sample of this size would reach about {normal}.', { worst: num(worst, 1), normal: num(normalWorst, 1) });
     const fatter = worst < normalWorst - 0.5;
-    setTakeaway('#takeaway-qq', [
-      'Worst return is ',
-      { strong: `${num(worst, 1)}σ` },
-      `; a normal sample this size would reach about ${num(normalWorst, 1)}σ. `,
-      fatter ? 'The left tail is fatter than a normal distribution allows.' : 'The left tail is in line with a normal distribution.',
-    ]);
+    setTakeaway(
+      '#takeaway-qq',
+      t('Worst return is **{worst}σ**; a normal sample this size would reach about {normal}σ.', { worst: num(worst, 1), normal: num(normalWorst, 1) }) +
+        ' ' +
+        (fatter ? t('The left tail is fatter than a normal distribution allows.') : t('The left tail is in line with a normal distribution.')),
+    );
     // the normal quantile of the VaR level: points beyond it are the tail the VaR is meant to cover
     const tailCut = normalQuantile(alpha);
 
@@ -903,14 +898,14 @@
       const y = linearScale(scale.min, scale.max, bottom, top);
       gridAndYAxis(svg, { left, right, top, bottom, y, ticks: scale.ticks, format: (v) => v.toFixed(0) });
       xAxisNumeric(svg, { ticks: scale.ticks, x, left, right, y: bottom, format: (v) => v.toFixed(0) });
-      axisTitle(svg, 'Normal quantile (standard deviations)', { x: (left + right) / 2, y: bottom + 36 });
-      axisTitle(svg, 'Sample quantile', { x: 12, y: (top + bottom) / 2, rotate: true });
+      axisTitle(svg, t('Normal quantile (standard deviations)'), { x: (left + right) / 2, y: bottom + 36 });
+      axisTitle(svg, t('Sample quantile'), { x: 12, y: (top + bottom) / 2, rotate: true });
       svg.appendChild(svgEl('line', { x1: x(scale.min).toFixed(1), y1: y(scale.min).toFixed(1), x2: x(scale.max).toFixed(1), y2: y(scale.max).toFixed(1), class: 'line ref' }));
       sample.forEach((value, i) => {
         svg.appendChild(svgEl('circle', { cx: x(theoretical[i]).toFixed(1), cy: y(value).toFixed(1), r: 2.6, class: theoretical[i] <= tailCut ? 'dot tail' : 'dot' }));
       });
       svg.appendChild(svgEl('circle', { cx: right - 150, cy: bottom - 14, r: 3, class: 'dot tail' }));
-      svg.appendChild(svgEl('text', { x: right - 142, y: bottom - 10, class: 'label' }, `Beyond the ${conf} VaR level`));
+      svg.appendChild(svgEl('text', { x: right - 142, y: bottom - 10, class: 'label' }, t('Beyond the {conf} VaR level', { conf })));
       container.appendChild(svg);
     });
   }
@@ -964,23 +959,23 @@
 
   function parseCsv(text, kind) {
     const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-    if (!lines.length) throw new Error('The file is empty.');
+    if (!lines.length) throw new Error(t('The file is empty.'));
     const delimiter = [',', ';', '\t'].find((d) => lines[0].includes(d)) || ',';
     let rows = lines.map((line) => line.split(delimiter).map((cell) => cell.trim().replace(/^"|"$/g, '')));
     const last = rows[0].length - 1;
     if (Number.isNaN(parseNumber(rows[0][Math.min(1, last)]))) rows = rows.slice(1); // header
-    if (!rows.length) throw new Error('The file has no data rows.');
-    if (rows.length > MAX_ROWS) throw new Error(`The file has ${rows.length} rows, the maximum is ${MAX_ROWS}.`);
+    if (!rows.length) throw new Error(t('The file has no data rows.'));
+    if (rows.length > MAX_ROWS) throw new Error(t('The file has {n} rows, the maximum is {max}.', { n: rows.length, max: MAX_ROWS }));
 
     const dated = rows[0].length > 1;
     const values = [];
     const dates = [];
     rows.forEach((row, i) => {
       const value = parseNumber(dated ? row[1] : row[0]);
-      if (!Number.isFinite(value)) throw new Error(`Row ${i + 1} does not contain a number.`);
+      if (!Number.isFinite(value)) throw new Error(t('Row {row} does not contain a number.', { row: i + 1 }));
       values.push(value);
       if (dated) {
-        if (!/^\d{4}-\d{2}-\d{2}/.test(row[0])) throw new Error(`Row ${i + 1}: the first column must be a date such as 2024-03-29.`);
+        if (!/^\d{4}-\d{2}-\d{2}/.test(row[0])) throw new Error(t('Row {row}: the first column must be a date such as 2024-03-29.', { row: i + 1 }));
         dates.push(row[0].slice(0, 10));
       }
     });
@@ -992,37 +987,37 @@
   // Several assets side by side: an optional date column, a header with the asset names, one column per asset
   function parsePortfolioCsv(text, kind, maxAssets) {
     const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-    if (!lines.length) throw new Error('The file is empty.');
+    if (!lines.length) throw new Error(t('The file is empty.'));
     const delimiter = [',', ';', '\t'].find((d) => lines[0].includes(d)) || ',';
     let rows = lines.map((line) => line.split(delimiter).map((cell) => cell.trim().replace(/^"|"$/g, '')));
     const hasHeader = rows[0].some((cell) => !DATE_CELL.test(cell) && Number.isNaN(parseNumber(cell)));
     const header = hasHeader ? rows[0] : null;
     if (hasHeader) rows = rows.slice(1);
-    if (!rows.length) throw new Error('The file has no data rows.');
-    if (rows.length > MAX_ROWS) throw new Error(`The file has ${rows.length} rows, the maximum is ${MAX_ROWS}.`);
+    if (!rows.length) throw new Error(t('The file has no data rows.'));
+    if (rows.length > MAX_ROWS) throw new Error(t('The file has {n} rows, the maximum is {max}.', { n: rows.length, max: MAX_ROWS }));
 
     const dated = DATE_CELL.test(rows[0][0]);
     const first = dated ? 1 : 0;
     const count = rows[0].length - first;
-    if (count < 2) throw new Error('A portfolio needs at least two asset columns.');
-    if (count > maxAssets) throw new Error(`The file has ${count} assets, the maximum is ${maxAssets}.`);
+    if (count < 2) throw new Error(t('A portfolio needs at least two asset columns.'));
+    if (count > maxAssets) throw new Error(t('The file has {n} assets, the maximum is {max}.', { n: count, max: maxAssets }));
     const names = [];
     for (let j = 0; j < count; j++) {
-      const name = header && header[first + j] ? header[first + j] : `Asset ${j + 1}`;
-      if (names.includes(name)) throw new Error(`The asset name "${name}" appears twice.`);
+      const name = header && header[first + j] ? header[first + j] : t('Asset {n}', { n: j + 1 });
+      if (names.includes(name)) throw new Error(t('The asset name "{name}" appears twice.', { name }));
       names.push(name);
     }
     const assets = Object.fromEntries(names.map((n) => [n, []]));
     const dates = [];
     rows.forEach((row, i) => {
-      if (row.length !== count + first) throw new Error(`Row ${i + 1} has ${row.length} columns, expected ${count + first}.`);
+      if (row.length !== count + first) throw new Error(t('Row {row} has {n} columns, expected {expected}.', { row: i + 1, n: row.length, expected: count + first }));
       if (dated) {
-        if (!DATE_CELL.test(row[0])) throw new Error(`Row ${i + 1}: the first column must be a date such as 2024-03-29.`);
+        if (!DATE_CELL.test(row[0])) throw new Error(t('Row {row}: the first column must be a date such as 2024-03-29.', { row: i + 1 }));
         dates.push(row[0].slice(0, 10));
       }
       names.forEach((name, j) => {
         const value = parseNumber(row[first + j]);
-        if (!Number.isFinite(value)) throw new Error(`Row ${i + 1}, ${name}: not a number.`);
+        if (!Number.isFinite(value)) throw new Error(t('Row {row}, {name}: not a number.', { row: i + 1, name }));
         assets[name].push(value);
       });
     });
@@ -1066,7 +1061,7 @@
   const SAMPLE_PORTFOLIO = [
     ['calm', 'Calm market', 11],
     ['volatile', 'Volatile market', 12],
-    ['regime_shift', 'Regime shift', 13],
+    ['regime_shift', 'Regime shift', 13], // the titles are keys of the translations: see loadSamplePortfolio
   ];
 
   const state = {
@@ -1098,10 +1093,10 @@
       setToken('');
       $('#token-form').hidden = false;
       $('#token').focus();
-      setStatus(rejected ? 'That access token was not accepted.' : 'Enter the access token to continue.', rejected);
+      setStatus(rejected ? t('That access token was not accepted.') : t('Enter the access token to continue.'), rejected);
       return;
     }
-    setStatus(error.message, true);
+    setStatus(window.I18n.server(error.message), true);
   }
 
   // The static export only has results for a grid of confidence levels; the slider then steps through that grid
@@ -1139,7 +1134,7 @@
     const ticket = ++state.request;
     const results = $('#results');
     results.classList.add('loading');
-    setStatus('Calculating…');
+    setStatus(t('Calculating…'));
     try {
       const result = await api.analyze(state.dataset, settings());
       if (ticket !== state.request) return; // a newer request superseded this one
@@ -1162,7 +1157,7 @@
   }
 
   async function chooseScenario(scenario) {
-    setStatus('Loading sample data…');
+    setStatus(t('Loading sample data…'));
     try {
       setDataset(await api.loadScenario(scenario.id, scenario.title));
       $('#file').value = '';
@@ -1208,18 +1203,18 @@
     const values = Object.values(readWeights());
     const total = values.reduce((sum, v) => sum + v, 0);
     const hint = $('#weights-hint');
-    if (values.some((v) => !Number.isFinite(v))) hint.textContent = 'Every weight must be a number.';
-    else if (Math.abs(total - 1) < 1e-4) hint.textContent = 'The weights sum to 100%.';
-    else hint.textContent = `The weights sum to ${pct(total, 1)}${total > 0 ? ' and are scaled to 100%' : ''}.`;
+    if (values.some((v) => !Number.isFinite(v))) hint.textContent = t('Every weight must be a number.');
+    else if (Math.abs(total - 1) < 1e-4) hint.textContent = t('The weights sum to 100%.');
+    else hint.textContent = total > 0 ? t('The weights sum to {total} and are scaled to 100%.', { total: pct(total, 1) }) : t('The weights sum to {total}.', { total: pct(total, 1) });
   }
 
   async function loadSamplePortfolio() {
-    setStatus('Loading sample portfolio…');
+    setStatus(t('Loading sample portfolio…'));
     try {
       const sets = await Promise.all(SAMPLE_PORTFOLIO.map(([id, title, seed]) => api.loadScenario(id, title, seed)));
-      const assets = Object.fromEntries(SAMPLE_PORTFOLIO.map(([, title], i) => [title, sets[i].values]));
+      const assets = Object.fromEntries(SAMPLE_PORTFOLIO.map(([, title], i) => [t(title), sets[i].values]));
       setDataset({
-        id: 'portfolio', portfolio: true, simulated: true, title: 'Sample portfolio', kind: 'returns',
+        id: 'portfolio', portfolio: true, simulated: true, title: t('Sample portfolio'), kind: 'returns',
         assets, dates: sets[0].dates, weights: equalWeights(Object.keys(assets)),
       });
       renderWeights();
@@ -1238,8 +1233,8 @@
     $('#file-field').hidden = portfolio;
     updateMarketField();
     $('#mode-hint').textContent = portfolio
-      ? 'Assets held at constant weights, rebalanced every period. Shows what each asset adds to the risk.'
-      : 'One series of returns or prices.';
+      ? t('Assets held at constant weights, rebalanced every period. Shows what each asset adds to the risk.')
+      : t('One series of returns or prices.');
   }
 
   async function switchMode(mode) {
@@ -1253,7 +1248,7 @@
     } else {
       state.dataset = null;
       $('#results').hidden = true;
-      setStatus(mode === 'portfolio' ? 'Upload a CSV of several assets or load the sample portfolio.' : '');
+      setStatus(mode === 'portfolio' ? t('Upload a CSV of several assets or load the sample portfolio.') : '');
       if (mode === 'single') await chooseScenario(state.scenarios.find((s) => s.id === $('#scenario').value));
     }
   }
@@ -1265,17 +1260,24 @@
     field.hidden = !state.marketSource;
     if (!state.marketSource) return;
     const portfolio = state.mode === 'portfolio';
-    $('#symbols-label').textContent = portfolio ? 'Load several symbols' : 'Load by symbol';
+    $('#symbols-label').textContent = portfolio ? t('Load several symbols') : t('Load by symbol');
     $('#symbols').placeholder = portfolio ? 'THYAO.IS, GARAN.IS, ASELS.IS' : 'THYAO.IS';
-    const adjusted = state.marketSource === 'Yahoo Finance' ? ', adjusted for splits and dividends' : '';
-    $('#market-hint').textContent = `Daily closing prices from ${state.marketSource}${adjusted}${portfolio ? `, two to ${state.limits.assets} symbols separated by commas` : ''}. They can be delayed, and are not investment advice.`;
+    const adjusted = state.marketSource === 'Yahoo Finance';
+    const hint = portfolio
+      ? adjusted
+        ? t('Daily closing prices from {source}, adjusted for splits and dividends, two to {max} symbols separated by commas. They can be delayed, and are not investment advice.')
+        : t('Daily closing prices from {source}, two to {max} symbols separated by commas. They can be delayed, and are not investment advice.')
+      : adjusted
+        ? t('Daily closing prices from {source}, adjusted for splits and dividends. They can be delayed, and are not investment advice.')
+        : t('Daily closing prices from {source}. They can be delayed, and are not investment advice.');
+    $('#market-hint').textContent = hint.replace('{source}', state.marketSource).replace('{max}', state.limits.assets);
   }
 
   async function loadMarket() {
     const symbols = $('#symbols').value.split(',').map((s) => s.trim()).filter(Boolean);
     const portfolio = state.mode === 'portfolio';
     if (portfolio ? symbols.length < 2 : symbols.length !== 1) {
-      setStatus(portfolio ? 'Give at least two symbols, separated by commas.' : 'Give one symbol, or switch to a portfolio for several.', true);
+      setStatus(portfolio ? t('Give at least two symbols, separated by commas.') : t('Give one symbol, or switch to a portfolio for several.'), true);
       return;
     }
     const years = $('#market-history').value;
@@ -1285,10 +1287,10 @@
       from.setFullYear(from.getFullYear() - Number(years));
       start = from.toISOString().slice(0, 10);
     }
-    setStatus(`Loading prices from ${state.marketSource}…`);
+    setStatus(t('Loading prices from {source}…', { source: state.marketSource }));
     try {
       const data = await api.marketPrices(symbols, start, $('#market-base').value);
-      const inBase = data.base && Object.keys(data.converted).length ? ` in ${data.base}` : '';
+      const inBase = data.base && Object.keys(data.converted).length ? ' ' + t('in {currency}', { currency: data.base }) : '';
       if (portfolio) {
         setDataset({
           id: 'portfolio', portfolio: true, simulated: false, market: data.source, title: `${data.symbols.join(', ')}${inBase}`, notes: data.notes, kind: 'prices',
@@ -1308,7 +1310,7 @@
 
   // ---- saved runs
 
-  const KIND_LABEL = { single: 'Series', portfolio: 'Portfolio' };
+  const kindLabel = (kind) => ({ single: t('Series'), portfolio: t('Portfolio') })[kind] || kind;
 
   function renderHistory() {
     const list = $('#history');
@@ -1320,19 +1322,19 @@
       const current = state.savedRun && state.savedRun.id === item.id;
       const h = item.headline || {};
       const meta = [
-        KIND_LABEL[item.kind] || item.kind,
+        kindLabel(item.kind),
         item.created_at.slice(0, 16).replace('T', ' '),
-        `${confidenceLabel(h.confidence)} VaR ${pct(h.var, 2)}`,
-        `Basel ${h.zone}`,
+        t('{conf} VaR {var}', { conf: confidenceLabel(h.confidence), var: pct(h.var, 2) }),
+        t('Basel {zone}', { zone: zoneName(h.zone) }),
       ].join(' · ');
       const buttons = element('div', { className: 'buttons' }, [
-        element('button', { className: 'button', text: 'Open', attributes: { type: 'button', 'data-action': 'open', 'aria-label': `Open ${item.name}` } }),
-        element('button', { className: 'button', text: 'Report', attributes: { type: 'button', 'data-action': 'report', 'aria-label': `Download the report of ${item.name}` } }),
-        element('button', { className: 'button danger', text: 'Delete', attributes: { type: 'button', 'data-action': 'delete', 'aria-label': `Delete ${item.name}` } }),
+        element('button', { className: 'button', text: t('Open'), attributes: { type: 'button', 'data-action': 'open', 'aria-label': t('Open {name}', { name: item.name }) } }),
+        element('button', { className: 'button', text: t('Report'), attributes: { type: 'button', 'data-action': 'report', 'aria-label': t('Download the report of {name}', { name: item.name }) } }),
+        element('button', { className: 'button danger', text: t('Delete'), attributes: { type: 'button', 'data-action': 'delete', 'aria-label': t('Delete {name}', { name: item.name }) } }),
       ]);
       const row = element('li', { className: current ? 'current' : '', attributes: { 'data-id': item.id } }, [
           element('label', { className: 'name' }, [
-            element('input', { attributes: { type: 'checkbox', 'data-compare': item.id, 'aria-label': `Compare ${item.name}` } }),
+            element('input', { attributes: { type: 'checkbox', 'data-compare': item.id, 'aria-label': t('Compare {name}', { name: item.name }) } }),
             element('span', { text: item.name }),
           ]),
           element('span', { className: 'meta', text: meta }),
@@ -1347,35 +1349,35 @@
   // ---- comparing saved analyses
 
   const COMPARE_ROWS = [
-    ['Type', (r) => KIND_LABEL[r.kind] || r.kind],
+    ['Type', (r) => kindLabel(r.kind)],
     ['Saved', (r) => r.created_at.slice(0, 10)],
     ['Confidence', (r) => confidenceLabel(r.metrics.confidence)],
-    ['Method', (r) => METHOD_NAMES[r.metrics.method] || r.metrics.method],
+    ['Method', (r) => methodName(r.metrics.method)],
     ['Observations', (r) => integer(r.metrics.observations)],
     ['Annualized return', (r) => pct(r.metrics.annualized_return)],
     ['Annualized volatility', (r) => pct(r.metrics.volatility)],
     ['Value at risk', (r) => pct(r.metrics.var)],
     ['Expected shortfall', (r) => pct(r.metrics.expected_shortfall)],
-    ['Maximum drawdown', (r) => pct(r.metrics.max_drawdown)],
-    ['Worst period', (r) => pct(r.metrics.worst_period)],
-    ['Sortino ratio', (r) => num(r.metrics.sortino_ratio)],
-    ['Calmar ratio', (r) => num(r.metrics.calmar_ratio)],
+    [t('Maximum drawdown'), (r) => pct(r.metrics.max_drawdown)],
+    [t('Worst period'), (r) => pct(r.metrics.worst_period)],
+    [t('Sortino ratio'), (r) => num(r.metrics.sortino_ratio)],
+    [t('Calmar ratio'), (r) => num(r.metrics.calmar_ratio)],
     ['Diversification ratio', (r) => num(r.metrics.diversification_ratio)],
     ['Breaches (expected)', (r) => `${r.metrics.exceedances} (${num(r.metrics.expected_exceedances, 1)})`],
     ['Kupiec p-value', (r) => (isNumber(r.metrics.kupiec_p_value) ? pValue(r.metrics.kupiec_p_value) : DASH)],
-    ['Basel traffic light', (r) => r.metrics.zone[0].toUpperCase() + r.metrics.zone.slice(1)],
+    ['Basel traffic light', (r) => zoneName(r.metrics.zone)],
   ];
 
   function updateCompareControls() {
     const count = state.compare.size;
     $('#compare').disabled = count < 2 || count > 4;
     $('#compare-hint').textContent =
-      count < 2 ? 'Tick two to four analyses to compare them side by side.' : count > 4 ? 'Compare at most four at a time.' : `${count} selected.`;
+      count < 2 ? t('Tick two to four analyses to compare them side by side.') : count > 4 ? t('Compare at most four at a time.') : t('{n} selected.', { n: count });
   }
 
   async function compareSelected() {
     const ids = state.runs.filter((r) => state.compare.has(r.id)).map((r) => r.id);
-    setStatus('Comparing…');
+    setStatus(t('Comparing…'));
     try {
       const { runs } = await api.compareRuns(ids);
       const table = $('#table-compare');
@@ -1384,7 +1386,7 @@
       table.appendChild(element('thead', {}, [element('tr', {}, heads)]));
       const body = element('tbody');
       for (const [label, format] of COMPARE_ROWS) {
-        body.appendChild(element('tr', {}, [element('th', { text: label, attributes: { scope: 'row' } }), ...runs.map((r) => element('td', { text: format(r) }))]));
+        body.appendChild(element('tr', {}, [element('th', { text: t(label), attributes: { scope: 'row' } }), ...runs.map((r) => element('td', { text: format(r) }))]));
       }
       table.appendChild(body);
       const panel = $('#compare-panel');
@@ -1419,7 +1421,7 @@
   }
 
   async function openRun(id) {
-    setStatus('Opening…');
+    setStatus(t('Opening…'));
     try {
       const { run: meta, request: saved, result } = await api.openRun(id);
       setMode(meta.kind === 'portfolio' ? 'portfolio' : 'single');
@@ -1428,7 +1430,7 @@
       confidence.value = saved.confidence;
       $('#confidence-out').textContent = confidenceLabel(saved.confidence);
       $('#method').value = saved.method;
-      $('#method-hint').textContent = METHOD_HINTS[saved.method];
+      $('#method-hint').textContent = methodHint(saved.method);
       $('#window').value = saved.window;
       renderWeights();
       state.request += 1; // a calculation still in flight must not replace this result
@@ -1449,13 +1451,13 @@
     if (!state.dataset) return;
     const name = $('#run-name').value.trim();
     if (!name) return;
-    setStatus('Saving…');
+    setStatus(t('Saving…'));
     try {
       const meta = await api.saveRun(name, state.dataset, settings());
       state.runs = [meta, ...state.runs];
       state.savedRun = meta;
       updateSaveControls();
-      setStatus(`Saved as “${name}”.`);
+      setStatus(t('Saved as “{name}”.', { name }));
     } catch (error) {
       fail(error);
     }
@@ -1471,7 +1473,7 @@
 
   async function removeRun(id) {
     const item = state.runs.find((r) => r.id === id);
-    if (!item || !window.confirm(`Delete “${item.name}”?`)) return;
+    if (!item || !window.confirm(t('Delete “{name}”?', { name: item.name }))) return;
     try {
       await api.deleteRun(id);
       state.runs = state.runs.filter((r) => r.id !== id);
@@ -1480,6 +1482,37 @@
     } catch (error) {
       fail(error);
     }
+  }
+
+  // ---- language
+
+  // Everything that was written into the page from code is written again in the other language
+  function applyLanguage() {
+    window.I18n.applyDocument();
+    document.documentElement.lang = window.I18n.lang;
+    $('#lang').textContent = isTurkish() ? 'English' : 'Türkçe';
+    $('#lang').setAttribute('lang', isTurkish() ? 'en' : 'tr');
+    const selected = $('#scenario').value;
+    for (const option of $('#scenario').options) {
+      const scenario = state.scenarios.find((item) => item.id === option.value);
+      if (scenario) option.textContent = t(scenario.title);
+    }
+    $('#scenario').value = selected;
+    describeScenario();
+    $('#method-hint').textContent = methodHint($('#method').value);
+    $('#confidence-out').textContent = confidenceLabel(confidenceValue());
+    setMode(state.mode);
+    if (state.datasets.portfolio) updateWeightsHint();
+    updateCompareControls();
+    $('#compare-panel').hidden = true;
+    renderHistory();
+    setStatus('');
+    if (state.result) render(state.result);
+  }
+
+  function chooseLanguage(lang) {
+    window.I18n.setLang(lang);
+    applyLanguage();
   }
 
   // ---- start up
@@ -1503,7 +1536,7 @@
 
     const scenarioSelect = $('#scenario');
     scenarioSelect.replaceChildren();
-    for (const scenario of state.scenarios) scenarioSelect.appendChild(element('option', { text: scenario.title, attributes: { value: scenario.id } }));
+    for (const scenario of state.scenarios) scenarioSelect.appendChild(element('option', { text: t(scenario.title), attributes: { value: scenario.id } }));
     describeScenario();
 
     if (!api.staticMode) {
@@ -1516,10 +1549,15 @@
 
   const chosenScenario = () => state.scenarios.find((s) => s.id === $('#scenario').value);
   const describeScenario = () => {
-    $('#scenario-hint').textContent = chosenScenario() ? chosenScenario().description : '';
+    $('#scenario-hint').textContent = chosenScenario() ? t(chosenScenario().description) : '';
   };
 
   function init() {
+    window.I18n.applyDocument();
+    document.documentElement.lang = window.I18n.lang;
+    $('#lang').textContent = isTurkish() ? 'English' : 'Türkçe';
+    $('#lang').setAttribute('lang', isTurkish() ? 'en' : 'tr');
+    $('#lang').addEventListener('click', () => chooseLanguage(isTurkish() ? 'en' : 'tr'));
     const fixed = Boolean(api.staticMode && api.fixed);
     if (fixed) document.body.classList.add('report');
     if (api.staticMode) {
@@ -1542,10 +1580,10 @@
     if (!fixed) $('#confidence-out').textContent = confidenceLabel(confidenceValue());
     setMode('single');
 
-    const methodHint = () => {
-      $('#method-hint').textContent = METHOD_HINTS[$('#method').value];
+    const showMethodHint = () => {
+      $('#method-hint').textContent = methodHint($('#method').value);
     };
-    methodHint();
+    showMethodHint();
 
     $('#scenario').addEventListener('change', () => {
       describeScenario();
@@ -1557,7 +1595,7 @@
       scheduleRun();
     });
     $('#method').addEventListener('change', () => {
-      methodHint();
+      showMethodHint();
       scheduleRun(0);
     });
     $('#window').addEventListener('change', () => scheduleRun(0));

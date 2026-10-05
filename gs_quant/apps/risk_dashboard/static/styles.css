@@ -284,3 +284,6 @@ body.report .controls, body.report .history, body.report .save-form { display: n
 .compare td { white-space: normal; }
 
 #market-field .row { display: flex; gap: 8px; align-items: center; }
+
+.title-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.button.lang { padding: 4px 12px; flex: none; }

@@ -16,6 +16,7 @@ under the License.
 
 import os
 import pathlib
+import re
 import socket
 import threading
 import time
@@ -121,6 +122,9 @@ def test_portfolio_save_open_report_and_delete(server, browser, tmp_path):
     saved.wait_for_selector('#results:not([hidden])')
     assert saved.is_visible('#portfolio-section') and not saved.is_visible('#controls-panel')
     assert 'Browser test' in saved.inner_text('#provenance')
+    saved.click('#lang')  # the report can be read in either language
+    saved.locator('#glance-title').filter(has_text='Bir bakışta risk').wait_for()
+    assert 'Kayıtlı rapor' in saved.inner_text('#provenance') or 'KAYITLI RAPOR' in saved.inner_text('#provenance')
 
     # a second analysis, with other weights, to compare against
     page.fill('#weight-0', '70')
@@ -154,6 +158,9 @@ def test_loading_prices_by_symbol(server, browser):
 
     page.goto(server)
     page.wait_for_selector('#market-field:not([hidden])')
+    page.wait_for_selector(
+        '#results:not([hidden])'
+    )  # the first analysis must be done: it clears the status when it ends
     assert 'Yahoo Finance' in page.inner_text('#market-hint')
 
     page.fill('#symbols', 'THYAO.IS, GARAN.IS')  # one symbol only in this mode
@@ -190,3 +197,66 @@ def test_loading_prices_by_symbol(server, browser):
     page.locator('#status.error').filter(has_text='at least two').wait_for()
 
     assert problems == []
+
+
+def test_switching_to_turkish_and_back(server, browser):
+    page = browser.new_context(locale='en-US').new_page()
+    problems = []
+    page.on('pageerror', lambda e: problems.append(str(e)))
+    page.on('console', lambda m: problems.append(m.text) if m.type in ('error', 'warning') else None)
+
+    page.goto(server)
+    page.wait_for_selector('#results:not([hidden])')
+    assert page.inner_text('h1') == 'Risk Analytics Dashboard' and page.get_attribute('html', 'lang') == 'en'
+    english_headline = page.inner_text('#headline')
+    assert '%' in english_headline and '.' in english_headline
+
+    page.click('#lang')
+    page.locator('h1').filter(has_text='Risk Analizi Panosu').wait_for()
+    assert page.get_attribute('html', 'lang') == 'tr' and page.inner_text('#lang') == 'English'
+    page.wait_for_selector('#results:not(.loading)')
+    text = page.inner_text('body')
+    assert 'Bir bakışta risk' in text and 'Model doğrulaması' in text and 'Kayıtlı analizler' in text
+    assert (
+        'Risk at a glance' not in text and '**' not in text and '{' not in text
+    )  # nothing left untranslated or unfilled
+    headline = page.inner_text('#headline')
+    assert (
+        '%' in headline and ',' in headline and re.search(r'%\d+,\d\d', headline)
+    )  # a decimal comma, the percent sign first
+    axis = page.locator('#chart-var svg text').evaluate_all('(nodes) => nodes.map((node) => node.textContent)')
+    assert any(re.fullmatch(r'−?%\d+,\d', label) for label in axis)  # the chart axes follow the same convention
+    assert [label for label in axis if re.search(r'\d\.\d', label)] == []
+    assert 'Basel trafik ışığı' in page.inner_text('#table-tests')
+    assert page.get_attribute('#run-name', 'placeholder') == 'Bu analize ad ver'
+    assert page.title() == 'Risk Analizi Panosu'
+
+    # the portfolio views are translated too, and the choice survives a reload
+    page.click('input[name=mode][value=portfolio]')
+    page.click('#portfolio-sample')
+    page.wait_for_selector('#portfolio-section:not([hidden])')
+    assert 'Çeşitlendirme oranı' in page.inner_text('#takeaway-portfolio')
+    assert 'En kötü' in page.inner_text('#table-stress') and 'Sakin piyasa' in page.inner_text('#table-assets')
+    page.reload()
+    page.locator('h1').filter(has_text='Risk Analizi Panosu').wait_for()
+    page.wait_for_selector('#results:not([hidden])')
+
+    page.click('#lang')
+    page.locator('h1').filter(has_text='Risk Analytics Dashboard').wait_for()
+    assert page.get_attribute('html', 'lang') == 'en' and page.inner_text('#lang') == 'Türkçe'
+    page.wait_for_selector('#results:not(.loading)')
+    assert 'Risk at a glance' in page.inner_text('body')
+    assert problems == []
+
+
+def test_a_turkish_browser_gets_turkish_and_a_server_error_is_translated(server, browser):
+    page = browser.new_context(locale='tr-TR').new_page()
+    page.goto(server)
+    page.wait_for_selector('#results:not([hidden])')
+    assert page.inner_text('h1') == 'Risk Analizi Panosu' and page.inner_text('#lang') == 'English'
+
+    page.click('input[name=mode][value=portfolio]')
+    page.fill('#symbols', 'NOPE.IS, NOPE2.IS')
+    page.click('#market-load')
+    page.locator('#status.error').wait_for()
+    assert 'bulunamadı' in page.inner_text('#status') or 'tanımıyor' in page.inner_text('#status')

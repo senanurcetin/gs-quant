@@ -85,7 +85,7 @@ class TestRender:
         assert all('href="data:' in tag for tag in re.findall(r'<link[^>]*>', html))
         assert 'src="/static' not in html
         assert 'href="/static' not in html
-        assert html.count('<script>') == 3 and '<style>' in html
+        assert html.count('<script>') == 4 and '<style>' in html
 
     def test_makes_no_network_requests(self, html):
         # the only URL that may appear is the link to the project page in the footer
@@ -109,6 +109,7 @@ class TestRender:
         (tmp_path / 'index.html').write_text('<html></html>', encoding='utf-8')
         (tmp_path / 'styles.css').write_text('', encoding='utf-8')
         (tmp_path / 'app.js').write_text('', encoding='utf-8')
+        (tmp_path / 'i18n.js').write_text('', encoding='utf-8')
         monkeypatch.setattr(export, 'STATIC_DIR', tmp_path)
 
         with pytest.raises(ValueError, match='Expected'):
