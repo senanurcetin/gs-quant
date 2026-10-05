@@ -28,8 +28,8 @@ jobs:
     name: Build the demo
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
       - name: Install
@@ -45,7 +45,7 @@ jobs:
         run: |
           test "$(wc -c < site/index.html)" -gt 500000
           grep -q "__RISK_DATA__" site/index.html
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v4
         with:
           path: site
 

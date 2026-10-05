@@ -877,8 +877,10 @@
       table.dataset.signature = signature;
       table.replaceChildren();
       const heads = [t('Scenario'), ...names.map((name) => t('{asset} (%)', { asset: assetLabel(name) })), t('Effect'), t('× VaR'), t('× ES')];
-      if (editable) heads.push('');
-      table.appendChild(element('thead', {}, [element('tr', {}, heads.map((h) => element('th', { text: h, attributes: { scope: 'col' } })))]));
+      const headCells = heads.map((h) => element('th', { text: h, attributes: { scope: 'col' } }));
+      // the column of remove buttons has no heading to see, but a screen reader needs one
+      if (editable) headCells.push(element('th', { attributes: { scope: 'col' } }, [element('span', { className: 'sr-only', text: t('Remove') })]));
+      table.appendChild(element('thead', {}, [element('tr', {}, headCells)]));
       const body = element('tbody');
       (editable ? asked : results).forEach((scenario, i) => {
         const cells = [];

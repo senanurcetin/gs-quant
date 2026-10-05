@@ -6,14 +6,20 @@ release are the section of that version below, and are published with it.
 ## [Unreleased]
 
 ### Changed
+- Workflows use `actions/checkout@v5`, `setup-python@v6` and `upload-pages-artifact@v4` (the old ones run on a retired
+  runtime); Dependabot watches the actions and the Python packages weekly.
 - Turkish: "Growth of 100" reads naturally ("100 birimlik yatırımın değeri"), and the Christoffersen test is named as a test.
   `TR_TERMS.md` lists the finance terms of the Turkish interface and the ones that need a finance reader's decision.
 
 ### Fixed
+- Accessibility: the multi-period section no longer shares its landmark name with its table, and the what-if table's column
+  of remove buttons has a heading for screen readers.
 - The exported dashboard (`gs-quant-risk export`) stopped at start-up in a browser, because a listener was attached to a
   form that the export removes. It now works, and a browser test opens it.
 
 ### Added
+- An automated accessibility check in the browser tests (axe-core, light and dark, English and Turkish, desktop and phone)
+  and an informational vulnerability scan of the image in CI.
 - Benchmark for a single series and in CSV files (a third column, or a column headed Benchmark), up and down capture
   ratios, and a rolling beta chart.
 - Horizon method: filtered historical simulation as an alternative to the square-root rule, a multi-period check of the

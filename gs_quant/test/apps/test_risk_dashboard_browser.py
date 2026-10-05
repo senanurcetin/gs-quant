@@ -581,3 +581,58 @@ def test_a_benchmark_for_a_single_series_and_in_csv_files(server, browser):
     page.locator('#beta-title').filter(has_text='Kayan beta').wait_for()
     assert 'portföy' in page.inner_text('#takeaway-benchmark')
     assert problems == []
+
+
+def _axe():
+    """The accessibility checker, which is skipped where it is not installed unless CI says it must run"""
+    if REQUIRED:
+        from axe_playwright_python.sync_playwright import Axe
+    else:
+        Axe = pytest.importorskip('axe_playwright_python.sync_playwright').Axe
+    return Axe()
+
+
+def _violations(page) -> list[str]:
+    page.wait_for_timeout(600)  # the page dims its results while it recalculates: judge it settled
+    page.wait_for_selector('#results:not(.loading)')
+    found = _axe().run(page).response['violations']
+    return [
+        f'{v["id"]} ({v["impact"]}): {v["help"]}: ' + ', '.join(str(n['target']) for n in v['nodes'][:4]) for v in found
+    ]
+
+
+@pytest.mark.parametrize('scheme', ['light', 'dark'])
+def test_the_page_has_no_accessibility_violations(server, browser, scheme):
+    """axe-core's rules (WCAG 2 A and AA, and its best practices, including colour contrast) over each part of the page"""
+    page = browser.new_context(locale='en-US', color_scheme=scheme, viewport={'width': 1100, 'height': 900}).new_page()
+    page.goto(server)
+    page.wait_for_selector('#results:not([hidden])')
+    page.wait_for_selector('#results:not(.loading)')
+    assert _violations(page) == [], 'a series'
+
+    # a portfolio with a benchmark, a what-if scenario, the filtered estimate and the multi-period check
+    page.click('input[name=mode][value=portfolio]')
+    page.click('#portfolio-sample')
+    page.wait_for_selector('#portfolio-section:not([hidden])')
+    page.fill('#horizon', '10')
+    page.press('#horizon', 'Tab')
+    page.wait_for_selector('#horizon-section:not([hidden])')
+    page.click('#whatif-add')
+    page.wait_for_selector('#results:not(.loading)')
+    assert _violations(page) == [], 'a portfolio'
+
+    page.click('#lang')
+    page.locator('#glance-title').filter(has_text='Bir bakışta risk').wait_for()
+    assert _violations(page) == [], 'in Turkish'
+
+
+def test_the_page_has_no_accessibility_violations_on_a_phone(server, browser):
+    page = browser.new_context(locale='en-US', viewport={'width': 390, 'height': 800}, is_mobile=True).new_page()
+    page.goto(server)
+    page.wait_for_selector('#results:not([hidden])')
+    page.wait_for_selector('#results:not(.loading)')
+
+    assert _violations(page) == []
+    assert page.evaluate(
+        'document.documentElement.scrollWidth <= window.innerWidth + 1'
+    )  # nothing makes the page scroll sideways

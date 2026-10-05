@@ -268,6 +268,15 @@ Invalid input gets a `422` with a message that says what is wrong.
 | `static/` | The page: `index.html`, `styles.css`, `app.js` and the translations in `i18n.js`. No framework, no third party code |
 | `__main__.py` | The `gs-quant-risk` command |
 
+**Accessibility** is checked in a real browser with axe-core (`axe-playwright-python`): the rules of WCAG 2 A and AA and its
+best practices, including colour contrast, over a series, a portfolio with a what-if scenario, the filtered estimate and the
+multi-period check, in light and dark themes, in English and in Turkish, and on a phone-sized screen (which also must not
+scroll sideways). The test found two things that are fixed: a section whose landmark name repeated that of its table, and a table column
+of buttons with no heading for a screen reader. It does not replace a person using a screen reader, which I have not done.
+**Dependencies and image**: `.github/dependabot.yml` asks for a pull request a week, at most three, for the actions and for the
+Python packages, grouped; the CI scans the image with Trivy and lists high and critical findings that have a fix, without
+failing the build (a finding in the base image is for you to weigh, not to be hidden by a red build).
+
 Tests are in `gs_quant/test/apps`: `python -m pytest gs_quant/test/apps`. The browser test there needs Playwright and
 Chromium and is skipped without them.
 
