@@ -97,6 +97,7 @@ app = [
     "starlette",
     "uvicorn>=0.47",
     "pydantic",
+    "openpyxl",
 ]
 
 [project.scripts]

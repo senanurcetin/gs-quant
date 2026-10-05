@@ -22,6 +22,7 @@ import threading
 import time
 
 import numpy as np
+import openpyxl
 import pytest
 
 # The browser tests are skipped where Playwright or a browser is missing, unless CI says they must run
@@ -111,6 +112,14 @@ def test_portfolio_save_open_report_and_delete(server, browser, tmp_path):
     report = tmp_path / 'report.html'
     download.value.save_as(report)
 
+    with page.expect_download() as workbook_download:
+        page.click('#xlsx')
+    workbook_path = tmp_path / 'run.xlsx'
+    workbook_download.value.save_as(workbook_path)
+    assert workbook_download.value.suggested_filename.endswith('.xlsx')
+    assert openpyxl.load_workbook(workbook_path).sheetnames[:2] == ['Summary', 'Backtest']
+    assert 'Portfolio' in openpyxl.load_workbook(workbook_path).sheetnames
+
     page.reload()
     page.click('#history li button[data-action=open]')
     page.wait_for_selector('#portfolio-section:not([hidden])')
@@ -122,6 +131,17 @@ def test_portfolio_save_open_report_and_delete(server, browser, tmp_path):
     saved.wait_for_selector('#results:not([hidden])')
     assert saved.is_visible('#portfolio-section') and not saved.is_visible('#controls-panel')
     assert 'Browser test' in saved.inner_text('#provenance')
+
+    # printed, the report is the results only, on a light page, and Chromium can make a PDF of it
+    saved.emulate_media(media='print', color_scheme='dark')
+    assert (
+        not saved.is_visible('#print') and not saved.is_visible('.actions') and saved.is_visible('#portfolio-section')
+    )
+    assert saved.evaluate("getComputedStyle(document.body).backgroundColor") == 'rgb(255, 255, 255)'
+    assert saved.pdf(format='A4')[:5] == b'%PDF-'
+    saved.emulate_media(media='screen', color_scheme='light')
+    assert saved.is_visible('#print')
+
     saved.click('#lang')  # the report can be read in either language
     saved.locator('#glance-title').filter(has_text='Bir bakışta risk').wait_for()
     assert 'Kayıtlı rapor' in saved.inner_text('#provenance') or 'KAYITLI RAPOR' in saved.inner_text('#provenance')

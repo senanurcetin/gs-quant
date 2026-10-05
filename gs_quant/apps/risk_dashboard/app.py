@@ -34,7 +34,7 @@ from starlette.staticfiles import StaticFiles
 
 from gs_quant.timeseries.risk_metrics import VaRMethod
 
-from . import analysis, limits, marketdata, portfolio, report
+from . import analysis, limits, marketdata, portfolio, report, xlsx
 from .settings import Settings
 from .store import RunStore, StoreFull
 
@@ -525,6 +525,22 @@ class Application:
             },
         )
 
+    async def run_xlsx(self, request: Request) -> Response:
+        """A saved run as an Excel workbook, recomputed like its report"""
+        stored = await self._stored(request)
+        if isinstance(stored, Response):
+            return stored
+        try:
+            result = await self._recompute(stored)
+        except analysis.AnalysisError as e:
+            return _error(409, f'The saved run can no longer be analysed: {e}')
+        content = await run_in_threadpool(xlsx.render_xlsx, stored, result)
+        return Response(
+            content,
+            media_type=xlsx.XLSX_MIME,
+            headers={'Content-Disposition': f'attachment; filename="risk_{stored["id"][:8]}.xlsx"'},
+        )
+
 
 def _too_many(template: str, wait: float) -> JSONResponse:
     seconds = max(int(math.ceil(wait)), 1)
@@ -658,6 +674,7 @@ def create_app(settings: Optional[Settings] = None) -> Starlette:
         Route('/api/runs/{run_id}', handlers.get_run, methods=['GET']),
         Route('/api/runs/{run_id}', handlers.delete_run, methods=['DELETE']),
         Route('/api/runs/{run_id}/report', handlers.run_report, methods=['GET']),
+        Route('/api/runs/{run_id}/xlsx', handlers.run_xlsx, methods=['GET']),
         Mount('/static', StaticFiles(directory=STATIC_DIR), name='static'),
     ]
     app = Starlette(routes=routes)

@@ -272,10 +272,24 @@ h3 { margin: 16px 0 6px; font-size: 0.9rem; color: var(--muted); }
 /* Saved report: no controls, only the results */
 body.report .controls, body.report .history, body.report .save-form { display: none; }
 
+/* Printing, and so "save as PDF": a light page whatever the screen theme, no controls, sections kept whole */
+@page { size: A4; margin: 14mm; }
+
 @media print {
-  body { background: #fff; color: #000; }
-  .controls, .history, .actions, .skip-link, .site-footer { display: none !important; }
-  .panel { box-shadow: none; break-inside: avoid; }
+  :root {
+    --bg: #fff; --panel: #fff; --text: #000; --muted: #4a5568; --border: #c9ced8; --accent: #1f5fbf; --accent-soft: #e6eefb;
+    --grid: #e3e6ec; --series: #1f5fbf; --series-2: #9a5b0f; --series-3: #2a7d52; --bar: #9aa6b8; --alert: #b3202a;
+    --alert-soft: #fbe6e7; --ok: #1c6b43; --ok-soft: #e2f2e9; --warn: #8a5a00; --warn-soft: #fbf0d4;
+    --area: rgba(179, 32, 42, 0.16); --shade: rgba(179, 32, 42, 0.07); --hist: #a9b8d0; --shadow: none;
+    color-scheme: light;
+  }
+  body { background: #fff; color: #000; font-size: 11pt; }
+  .controls, .history, .actions, .skip-link, .site-footer, .token-form, #status, #compare-panel, .crosshair { display: none !important; }
+  .panel { box-shadow: none; break-inside: avoid; border: 1px solid var(--border); margin-bottom: 10pt; }
+  h2, h3 { break-after: avoid; }
+  .table-scroll { overflow: visible !important; }
+  .pair { grid-template-columns: 1fr 1fr; }
+  .chart svg { max-width: 100%; }
 }
 
 .compare-bar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-top: 8px; }
