@@ -61,6 +61,17 @@ reason a freshly installed command is "not recognized" on Windows. It listens on
   They are the one-period figures times the square root of the horizon, capped at a loss of 100%. That rule is an
   approximation that assumes independent returns and no drift: it understates the risk when returns trend or when
   volatility clusters. The assumption is stated in the notes of the analysis whenever the horizon is more than one period.
+  The **horizon method** can instead be a *filtered simulation* (filtered historical simulation): each return is divided by
+  the EWMA volatility forecast made before it, 10,000 paths are simulated from today's volatility by drawing those
+  standardised returns and moving the volatility on with the EWMA recursion, and the figures are the quantile and the tail
+  mean of the compounded paths. It follows the current market where the square-root rule, which scales a figure from a long
+  window, lags (on the *Regime shift* sample the 10-period 95% VaR is 12.0% by simulation against 4.9% by the rule), and
+  keeps the fat tails of the history. It is an approximation too, with zero mean, and uses a fixed seed so that the same
+  analysis gives the same figures. For the square-root rule the page also shows a **multi-period check**: the figures
+  against what happened over stretches of the horizon that do not overlap (overlapping ones share returns and break the
+  independence the Kupiec test needs), judged against the one-period VaR known just before each stretch times the square
+  root of the horizon. It needs at least 20 stretches; on the same sample it rejects the rule (8 breaches in 75 stretches, 3.75
+  expected). The **EWMA decay** (0.80 to 0.99, 0.94 by default) is a setting.
 - **Rolling window against a filtered estimate**: next to the rolling-window figures, the page shows an exponentially
   weighted (EWMA, RiskMetrics decay 0.94, zero mean) volatility, a normal VaR from it, and how that VaR fared against the
   periods that followed (Kupiec test over the same periods as the rolling estimate). The filtered line is drawn on the VaR

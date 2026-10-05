@@ -70,6 +70,17 @@ def _widths(sheet: Worksheet, widths: list[int]) -> None:
         sheet.column_dimensions[sheet.cell(row=1, column=column).column_letter].width = width
 
 
+def _horizon_check(horizon: dict) -> list:
+    check = horizon.get('backtest')
+    if not check:
+        return []
+    return [
+        [f'{check["periods"]}-period value at risk: stretches judged', check['observations'], None],
+        [f'{check["periods"]}-period value at risk: breaches', check['exceedances'], None],
+        [f'{check["periods"]}-period value at risk: Kupiec p-value', check['p_value'], RATIO],
+    ]
+
+
 def _summary(sheet: Worksheet, stored: dict, result: dict) -> None:
     s, settings = result['summary'], result['settings']
     _put(sheet, 1, 1, stored['name'], bold=True)
@@ -89,6 +100,8 @@ def _summary(sheet: Worksheet, stored: dict, result: dict) -> None:
             result['horizon']['expected_shortfall'],
             PERCENT,
         ],
+        ['Horizon method', result['horizon']['method'].replace('_', ' '), None],
+        *_horizon_check(result['horizon']),
         ['Maximum drawdown', s['max_drawdown'], PERCENT],
         ['Worst period', s['worst_period'], PERCENT],
         ['Best period', s['best_period'], PERCENT],

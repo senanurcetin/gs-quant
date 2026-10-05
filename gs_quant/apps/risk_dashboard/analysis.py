@@ -49,6 +49,12 @@ SERIES_KEY = 'series'  # what a single series is called in a what-if scenario
 DEFAULT_PERIODS_PER_YEAR = 252
 MAX_HORIZON = 60  # periods
 EWMA_DECAY = 0.94  # the RiskMetrics value for daily data
+MIN_DECAY, MAX_DECAY = 0.80, 0.99
+HORIZON_METHODS = ('square_root', 'filtered_simulation')
+SIMULATION_PATHS = 10_000
+SIMULATION_SEED = 7  # fixed: the same analysis gives the same figures
+SIMULATION_BURN_IN = 20  # the first standardised returns rest on a volatility that has not settled
+MIN_HORIZON_BLOCKS = 20  # fewer non-overlapping periods than this say nothing about a model
 MIN_BENCHMARK_OBSERVATIONS = 30
 MIN_BENCHMARK_VARIANCE = 1e-20
 
@@ -172,16 +178,24 @@ def ewma_volatility(returns: pd.Series, decay: float = EWMA_DECAY) -> pd.Series:
     return np.sqrt((returns**2).ewm(alpha=1 - decay, adjust=False).mean())
 
 
-def _ewma(returns: pd.Series, confidence: float, window: int, periods: float, var: pd.Series, summary: dict) -> tuple:
+def _ewma(
+    returns: pd.Series,
+    confidence: float,
+    window: int,
+    periods: float,
+    var: pd.Series,
+    summary: dict,
+    decay: float = EWMA_DECAY,
+) -> tuple:
     """The filtered estimate of risk next to the rolling one: its volatility, a normal value at risk from it, and how
     that value at risk fared against the periods that followed it (over the same periods as the rolling window's)"""
-    sigma = ewma_volatility(returns)
+    sigma = ewma_volatility(returns, decay)
     z = float(stats.norm.ppf(1 - confidence))
     forecast = (z * sigma).where(var.notna())  # the same periods as the rolling estimate, so the two are comparable
     backtest = var_backtest(returns, forecast.shift(1), confidence)
     recent = returns.iloc[-window:]
     details = {
-        'decay': EWMA_DECAY,
+        'decay': decay,
         'volatility': clean(float(sigma.iloc[-1]) * math.sqrt(periods), 6),
         'window_volatility': clean(float(recent.std(ddof=1)) * math.sqrt(periods), 6),
         'full_volatility': clean(summary['annualized_volatility'], 6),
@@ -202,9 +216,78 @@ def horizon_risk(periods: int, var: float, es: float) -> dict:
     scale = math.sqrt(periods)
     return {
         'periods': periods,
+        'method': 'square_root',
         'rule': 'square_root_of_time',
         'var': clean(max(var * scale, -1.0)),
         'expected_shortfall': clean(max(es * scale, -1.0)),
+        'backtest': None,
+    }
+
+
+def filtered_simulation(
+    returns: pd.Series,
+    horizon: int,
+    confidence: float,
+    decay: float,
+    paths: int = SIMULATION_PATHS,
+    seed: int = SIMULATION_SEED,
+) -> tuple[float, float]:
+    """Value at risk and expected shortfall over several periods by filtered historical simulation
+
+    Each return is divided by the EWMA volatility forecast made before it, which leaves returns that are about as
+    volatile as each other. Paths are then simulated from today's volatility: each step draws one of those standardised
+    returns at random, multiplies it by the current volatility, and moves the volatility on with the EWMA recursion, so
+    the paths are as volatile as the market is now and have the fat tails and skew of the history. The figures are the
+    quantile and the mean of the worst tail of the compounded returns of the paths. Returns have zero mean, as in the
+    EWMA, and the draws come from a fixed seed: the same analysis always gives the same figures.
+    """
+    sigma = ewma_volatility(returns, decay)
+    forecast = sigma.shift(1)  # the volatility each return was judged against: known before it happened
+    standardised = (returns / forecast).iloc[SIMULATION_BURN_IN:].to_numpy()
+    standardised = standardised[np.isfinite(standardised)]
+    if standardised.size < 30:
+        raise AnalysisError('Too few returns to simulate from')
+    rng = np.random.default_rng(seed)
+    draws = rng.choice(standardised, size=(paths, horizon))
+    variance = np.full(paths, float(sigma.iloc[-1]) ** 2)
+    growth = np.ones(paths)
+    for step in range(horizon):
+        shock = np.sqrt(variance) * draws[:, step]
+        step_return = np.maximum(shock, -0.999999)  # a loss of more than everything is not possible
+        growth *= 1 + step_return
+        variance = decay * variance + (1 - decay) * step_return**2
+    compounded = growth - 1
+    threshold = float(np.quantile(compounded, 1 - confidence))
+    return threshold, float(compounded[compounded <= threshold].mean())
+
+
+def horizon_backtest(returns: pd.Series, var: pd.Series, horizon: int, confidence: float) -> Optional[dict]:
+    """The square-root-of-time value at risk against what really happened over the same number of periods
+
+    Only non-overlapping stretches are judged: overlapping ones share most of their returns, which breaks the independence
+    the Kupiec test relies on. Each stretch is judged against the one-period rolling value at risk known just before it,
+    scaled by the square root of the horizon. None if fewer than MIN_HORIZON_BLOCKS stretches can be judged.
+    """
+    values = returns.to_numpy()
+    known = var.to_numpy()
+    first = int(np.argmax(np.isfinite(known))) + 1  # the first stretch starts after the first value at risk exists
+    ends, realised, forecast = [], [], []
+    for start in range(first, len(values) - horizon + 1, horizon):
+        if not np.isfinite(known[start - 1]):
+            continue
+        realised.append(float(np.prod(1 + values[start : start + horizon]) - 1))
+        forecast.append(max(float(known[start - 1]) * math.sqrt(horizon), -1.0))
+        ends.append(returns.index[start + horizon - 1])
+    if len(realised) < MIN_HORIZON_BLOCKS:
+        return None
+    result = var_backtest(pd.Series(realised, index=range(len(realised))), pd.Series(forecast), confidence)
+    return {
+        'periods': horizon,
+        'observations': result.observations,
+        'exceedances': result.exceedances,
+        'expected_rate': clean(result.expected_rate, 6),
+        'p_value': clean(result.p_value, 6),
+        'reject': bool(result.reject),
     }
 
 
@@ -314,8 +397,14 @@ def analyze(
     periods_per_year: Optional[int] = None,
     assumptions: Optional[list[str]] = None,
     horizon: int = 1,
+    ewma_decay: float = EWMA_DECAY,
+    horizon_method: str = 'square_root',
 ) -> dict:
     """Everything the dashboard shows for a series of simple returns"""
+    if horizon_method not in HORIZON_METHODS:
+        raise AnalysisError(f'The horizon method must be one of {", ".join(HORIZON_METHODS)}')
+    if not MIN_DECAY <= ewma_decay <= MAX_DECAY:
+        raise AnalysisError(f'The EWMA decay must be between {MIN_DECAY} and {MAX_DECAY}')
     assumptions = list(assumptions or [])
     dated = isinstance(returns.index, pd.DatetimeIndex)
     factor = periods_per_year if periods_per_year is not None else (None if dated else DEFAULT_PERIODS_PER_YEAR)
@@ -335,13 +424,29 @@ def analyze(
         backtest = var_backtest(returns, forecast, confidence)
         independence = var_independence_test(returns, forecast, confidence)
         light = traffic_light_zone(backtest.exceedances, backtest.observations, confidence)
-        ewma, ewma_var = _ewma(returns, confidence, window, periods, var, summary.to_dict())
+        ewma, ewma_var = _ewma(returns, confidence, window, periods, var, summary.to_dict(), ewma_decay)
     except (MqError, ValueError) as e:
         raise AnalysisError(str(e)) from e
 
     risk = headline_figures(summary.to_dict(), method)
     horizon_details = horizon_risk(horizon, risk['var'], risk['expected_shortfall'])
-    if horizon > 1:
+    if horizon > 1 and horizon_method == 'filtered_simulation':
+        simulated_var, simulated_es = filtered_simulation(returns, horizon, confidence, ewma_decay)
+        horizon_details = {
+            'periods': horizon,
+            'method': 'filtered_simulation',
+            'rule': 'filtered_historical_simulation',
+            'var': clean(max(simulated_var, -1.0)),
+            'expected_shortfall': clean(max(simulated_es, -1.0)),
+            'paths': SIMULATION_PATHS,
+            'backtest': None,
+        }
+        assumptions.append(
+            f'The {horizon}-period figures come from a filtered historical simulation: {SIMULATION_PATHS:,} paths from the '
+            f'current EWMA volatility (decay {ewma_decay}), drawing the history\'s standardised returns, with zero mean'
+        )
+    elif horizon > 1:
+        horizon_details['backtest'] = horizon_backtest(returns, var.reindex(returns.index), horizon, confidence)
         assumptions.append(
             f'The {horizon}-period figures scale the one-period value at risk and expected shortfall by the square '
             'root of the horizon, which assumes independent returns and no drift'
@@ -373,6 +478,8 @@ def analyze(
             'minimum_acceptable_return': minimum_acceptable_return,
             'periods_per_year': periods,
             'horizon': horizon,
+            'horizon_method': horizon_method,
+            'ewma_decay': ewma_decay,
         },
         'horizon': horizon_details,
         'ewma': ewma,

@@ -97,6 +97,8 @@ class _Settings(BaseModel):
     minimum_acceptable_return: float = Field(0.0, ge=-0.5, le=0.5)
     periods_per_year: Optional[int] = Field(None, ge=1, le=366)
     horizon: int = Field(1, ge=1, le=analysis.MAX_HORIZON)
+    horizon_method: Literal['square_root', 'filtered_simulation'] = 'square_root'
+    ewma_decay: float = Field(analysis.EWMA_DECAY, ge=analysis.MIN_DECAY, le=analysis.MAX_DECAY)
     scenarios: list[Scenario] = Field(default_factory=list, max_length=analysis.MAX_SCENARIOS)
 
 
@@ -236,6 +238,8 @@ def execute(kind: str, params: _Settings) -> dict:
             periods_per_year=params.periods_per_year,
             assumptions=assumptions,
             horizon=params.horizon,
+            ewma_decay=params.ewma_decay,
+            horizon_method=params.horizon_method,
         )
         weights = {analysis.SERIES_KEY: 1.0}
     else:
@@ -250,6 +254,8 @@ def execute(kind: str, params: _Settings) -> dict:
             minimum_acceptable_return=params.minimum_acceptable_return,
             periods_per_year=params.periods_per_year,
             horizon=params.horizon,
+            ewma_decay=params.ewma_decay,
+            horizon_method=params.horizon_method,
             benchmark=params.benchmark,
             benchmark_name=params.benchmark_name,
         )

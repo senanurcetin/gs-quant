@@ -73,9 +73,11 @@ class TestHorizon:
         assert analysis.horizon_risk(60, -0.2, -0.3)['var'] == -1.0
         assert analysis.horizon_risk(4, -0.01, -0.02) == {
             'periods': 4,
+            'method': 'square_root',
             'rule': 'square_root_of_time',
             'var': -0.02,
             'expected_shortfall': -0.04,
+            'backtest': None,
         }
 
 
@@ -289,3 +291,174 @@ class TestApi:
         )
 
         assert response.status_code == 422
+
+
+class TestHorizonBacktest:
+    def test_judges_non_overlapping_stretches_against_the_scaled_value_at_risk(self):
+        values = np.zeros(62)
+        for k in (3, 7, 11):  # the stretches starting at 1 + 2k lose 5%: more than the forecast of 1% x sqrt(2)
+            values[1 + 2 * k] = -0.05
+        returns = dated(values)
+        var = dated(np.full(62, -0.01))
+
+        result = analysis.horizon_backtest(returns, var, 2, 0.95)
+
+        # stretches start at 1, 3, ..., 59: thirty of them, three of which breach
+        assert (result['observations'], result['exceedances'], result['periods']) == (30, 3, 2)
+        assert result['expected_rate'] == pytest.approx(0.05)
+
+    def test_a_stretch_is_judged_by_its_compounded_return(self):
+        values = np.zeros(62)
+        values[1], values[2] = -0.01, -0.01  # together a fall of 1.99%, which is past 1% x sqrt(2) = 1.41%
+        returns, var = dated(values), dated(np.full(62, -0.01))
+
+        assert analysis.horizon_backtest(returns, var, 2, 0.95)['exceedances'] == 1
+
+    def test_the_forecast_is_the_value_at_risk_known_before_the_stretch(self):
+        values = np.zeros(62)
+        values[1] = -0.05
+        known = np.full(62, -0.10)  # wide enough to cover a fall of 5%...
+        known[0] = -0.01  # ...except the one known just before the first stretch, which is tight
+        returns, var = dated(values), dated(known)
+
+        assert analysis.horizon_backtest(returns, var, 2, 0.95)['exceedances'] == 1
+
+    def test_too_few_stretches_say_nothing(self):
+        assert analysis.horizon_backtest(random_returns(60), random_returns(60) * 0 - 0.01, 10, 0.95) is None
+
+    def test_it_comes_with_the_square_root_figures_and_only_with_them(self):
+        returns = analysis.simulate_returns('regime_shift', 1000, 7)
+
+        root = analysis.analyze(returns, 0.95, VaRMethod.HISTORICAL, 250, horizon=10)['horizon']
+        simulated = analysis.analyze(
+            returns, 0.95, VaRMethod.HISTORICAL, 250, horizon=10, horizon_method='filtered_simulation'
+        )
+        single = analysis.analyze(returns, 0.95, VaRMethod.HISTORICAL, 250)['horizon']
+
+        assert root['backtest']['observations'] == 75 and root['backtest']['exceedances'] == 8
+        assert simulated['horizon']['backtest'] is None and single['backtest'] is None
+
+
+class TestFilteredSimulation:
+    def test_gives_the_same_figures_every_time(self):
+        returns = random_returns(500, seed=4)
+
+        assert analysis.filtered_simulation(returns, 10, 0.95, 0.94) == analysis.filtered_simulation(
+            returns, 10, 0.95, 0.94
+        )
+
+    def test_for_returns_that_are_normal_and_constant_in_volatility_it_agrees_with_theory(self):
+        sigma = 0.01
+        returns = random_returns(3000, seed=8, scale=sigma)
+
+        var, es = analysis.filtered_simulation(returns, 10, 0.95, 0.97)
+
+        # about -1.645 x 0.01 x sqrt(10) = -5.2% for the value at risk, and -6.5% for the shortfall
+        assert var == pytest.approx(-1.645 * sigma * math.sqrt(10), rel=0.15)
+        assert es == pytest.approx(-2.063 * sigma * math.sqrt(10), rel=0.15)
+        assert es < var < 0
+
+    def test_follows_todays_volatility_where_a_long_window_lags(self):
+        calm = np.random.default_rng(1).normal(0, 0.005, 400)
+        stormy = np.random.default_rng(2).normal(0, 0.03, 30)
+        returns = dated(np.concatenate([calm, stormy]))
+
+        result = analysis.analyze(
+            returns, 0.95, VaRMethod.HISTORICAL, 300, horizon=10, horizon_method='filtered_simulation'
+        )
+        root = analysis.analyze(returns, 0.95, VaRMethod.HISTORICAL, 300, horizon=10)['horizon']
+
+        assert result['horizon']['var'] < 2 * root['var']  # a loss, so "more than twice" is more negative
+        assert result['horizon']['expected_shortfall'] < result['horizon']['var']
+
+    def test_names_what_it_did_in_the_notes(self):
+        returns = random_returns(400)
+
+        result = analysis.analyze(
+            returns, 0.95, VaRMethod.HISTORICAL, 100, horizon=5, horizon_method='filtered_simulation'
+        )
+
+        assert any('filtered historical simulation' in a and '10,000 paths' in a for a in result['assumptions'])
+        assert not any('square root' in a for a in result['assumptions'])
+        assert result['horizon']['method'] == 'filtered_simulation' and result['horizon']['paths'] == 10_000
+
+    def test_one_period_needs_no_simulation(self):
+        result = analysis.analyze(
+            random_returns(400), 0.95, VaRMethod.HISTORICAL, 100, horizon_method='filtered_simulation'
+        )
+
+        assert (
+            result['horizon']['method'] == 'square_root'
+            and result['horizon']['var'] == analysis.headline(result)['var']
+        )
+
+
+class TestDecay:
+    def test_the_decay_is_used_and_reported(self):
+        returns = random_returns(500, seed=6)
+
+        result = analysis.analyze(returns, 0.95, VaRMethod.HISTORICAL, 100, ewma_decay=0.9)
+
+        assert result['ewma']['decay'] == 0.9 and result['settings']['ewma_decay'] == 0.9
+        assert result['ewma']['volatility'] == pytest.approx(
+            analysis.ewma_volatility(returns, 0.9).iloc[-1] * math.sqrt(252), abs=1e-6
+        )
+
+    def test_a_shorter_memory_reacts_more_to_a_recent_shock(self):
+        values = np.concatenate([np.random.default_rng(3).normal(0, 0.005, 300), [-0.06]])
+        returns = dated(values)
+
+        fast = analysis.analyze(returns, 0.95, VaRMethod.HISTORICAL, 100, ewma_decay=0.85)['ewma']['volatility']
+        slow = analysis.analyze(returns, 0.95, VaRMethod.HISTORICAL, 100, ewma_decay=0.98)['ewma']['volatility']
+
+        assert fast > slow
+
+    @pytest.mark.parametrize('decay', [0.5, 0.79, 1.0])
+    def test_a_decay_out_of_range_is_refused(self, decay):
+        with pytest.raises(AnalysisError, match='EWMA decay'):
+            analysis.analyze(random_returns(400), 0.95, VaRMethod.HISTORICAL, 100, ewma_decay=decay)
+
+    def test_an_unknown_horizon_method_is_refused(self):
+        with pytest.raises(AnalysisError, match='horizon method'):
+            analysis.analyze(random_returns(400), 0.95, VaRMethod.HISTORICAL, 100, horizon_method='magic')
+
+
+class TestNewSettingsOverHttp:
+    def test_the_settings_are_accepted_and_echoed(self, client):
+        sample = client.get('/api/sample', params={'scenario': 'regime_shift'}).json()
+
+        body = client.post(
+            '/api/analyze',
+            json={
+                'returns': sample['returns'],
+                'dates': sample['dates'],
+                'horizon': 10,
+                'horizon_method': 'filtered_simulation',
+                'ewma_decay': 0.9,
+            },
+        )
+
+        assert body.status_code == 200
+        result = body.json()
+        assert result['settings']['horizon_method'] == 'filtered_simulation' and result['settings']['ewma_decay'] == 0.9
+        assert result['horizon']['method'] == 'filtered_simulation' and result['horizon']['backtest'] is None
+
+    @pytest.mark.parametrize('changes', [{'ewma_decay': 0.5}, {'ewma_decay': 1.0}, {'horizon_method': 'magic'}])
+    def test_values_out_of_range_are_refused(self, client, changes):
+        sample = client.get('/api/sample', params={'scenario': 'volatile'}).json()
+
+        assert client.post('/api/analyze', json={'returns': sample['returns'], **changes}).status_code == 422
+
+    def test_a_saved_run_keeps_them(self, client):
+        saved = client.post(
+            '/api/runs',
+            json={
+                'name': 'FHS',
+                'kind': 'portfolio',
+                'request': portfolio_body(horizon=5, horizon_method='filtered_simulation', ewma_decay=0.9),
+            },
+        )
+
+        opened = client.get(f'/api/runs/{saved.json()["id"]}').json()['result']
+
+        assert opened['settings']['ewma_decay'] == 0.9 and opened['horizon']['method'] == 'filtered_simulation'

@@ -427,6 +427,18 @@ def test_horizon_filtered_estimate_and_benchmark(server, browser):
     page.locator('#headline > div').nth(5).wait_for()
     assert '10 periods' in page.inner_text('#headline') and 'square root of time' in page.inner_text('#headline')
     assert 'square root of the horizon' in page.text_content('#notes')
+    # the square-root figures are checked over stretches that do not overlap
+    page.wait_for_selector('#horizon-section:not([hidden])')
+    assert page.locator('#table-horizon tbody tr').count() == 1 and 'Kupiec' in page.inner_text('#takeaway-horizon')
+    # a simulation instead: no such check, and the notes say what was done
+    page.select_option('#horizon-method', 'filtered_simulation')
+    page.locator('#headline').filter(has_text='filtered simulation').wait_for()
+    assert not page.is_visible('#horizon-section') and 'filtered historical simulation' in page.text_content('#notes')
+    page.select_option('#horizon-method', 'square_root')
+    page.wait_for_selector('#horizon-section:not([hidden])')
+    page.fill('#ewma-decay', '0.9')
+    page.press('#ewma-decay', 'Tab')
+    page.locator('#table-ewma').filter(has_text='decay 0.90').wait_for()
     page.fill('#horizon', '1')
     page.press('#horizon', 'Tab')
     page.locator('#headline > div').nth(5).wait_for(state='detached')
@@ -489,7 +501,16 @@ def test_the_static_export_works_in_a_browser(browser, tmp_path):
     page.wait_for_selector('#results:not(.loading)')
     assert page.locator('#headline > div').count() == 4
     first = page.inner_text('#headline')
-    for hidden in ('#mode-field', '#file-field', '#market-field', '#history-panel', '#book-panel', '#horizon-field'):
+    for hidden in (
+        '#mode-field',
+        '#file-field',
+        '#market-field',
+        '#history-panel',
+        '#book-panel',
+        '#horizon-field',
+        '#horizon-method-field',
+        '#decay-field',
+    ):
         assert not page.is_visible(hidden), hidden
 
     page.select_option('#scenario', 'regime_shift')

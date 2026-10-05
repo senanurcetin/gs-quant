@@ -132,6 +132,8 @@ def analyze_portfolio(
     minimum_acceptable_return: float = 0.0,
     periods_per_year: Optional[int] = None,
     horizon: int = 1,
+    ewma_decay: float = analysis.EWMA_DECAY,
+    horizon_method: str = 'square_root',
     benchmark: Optional[list[float]] = None,
     benchmark_name: str = 'Benchmark',
 ) -> dict:
@@ -144,7 +146,16 @@ def analyze_portfolio(
     if (portfolio <= -1).any():
         raise AnalysisError('The portfolio lost more than 100% in a period, which the analysis cannot handle')
     result = analysis.analyze(
-        portfolio, confidence, method, window, minimum_acceptable_return, periods_per_year, assumptions, horizon
+        portfolio,
+        confidence,
+        method,
+        window,
+        minimum_acceptable_return,
+        periods_per_year,
+        assumptions,
+        horizon,
+        ewma_decay,
+        horizon_method,
     )
     result['stress'] = analysis.stress(portfolio, frame)
     result['portfolio'] = _decompose(frame, w, portfolio, confidence, result['settings']['periods_per_year'])

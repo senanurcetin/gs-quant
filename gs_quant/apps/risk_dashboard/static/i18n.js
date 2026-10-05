@@ -295,7 +295,21 @@
     "Benchmark symbol (optional)": "Kıyas sembolü (isteğe bağlı)",
     "Adds beta, tracking error and the information ratio against it, for example XU100.IS or ^GSPC.": "Kıyasa göre beta, izleme hatası ve bilgi oranını ekler; örneğin XU100.IS veya ^GSPC.",
     "Horizon (periods)": "Ufuk (dönem)",
-    "1 is a single period. A longer horizon scales the one-period figures by the square root of time, an approximation that assumes independent returns.": "1, tek dönem demektir. Daha uzun bir ufuk, tek dönemlik değerleri zamanın kareköküyle ölçekler; getirilerin birbirinden bağımsız olduğunu varsayan bir yaklaşıklıktır.",
+        "1 is a single period. For a longer horizon, the method below says how the one-period figures are extended.": "1, tek dönem demektir. Daha uzun bir ufuk için, tek dönemlik değerlerin nasıl uzatılacağını aşağıdaki yöntem belirler.",
+    "Horizon method": "Ufuk yöntemi",
+    "Square root of time": "Zamanın karekökü",
+    "Filtered simulation": "Süzülmüş simülasyon",
+    "filtered simulation": "süzülmüş simülasyon",
+    "EWMA decay": "EWMA sönümleme katsayısı",
+    "How fast the filtered estimate forgets the past: 0.94 is the RiskMetrics value for daily data, a lower value reacts faster.": "Filtrelenmiş tahminin geçmişi ne kadar hızlı unuttuğu: 0,94 günlük veri için RiskMetrics değeridir; daha düşük bir değer daha hızlı tepki verir.",
+    "Simulates paths from today’s filtered volatility with the history’s own standardised returns: it follows the current market and keeps the fat tails. Also an approximation, with zero mean.": "Bugünkü filtrelenmiş volatiliteden, geçmişin kendi standartlaştırılmış getirileriyle yollar simüle eder: güncel piyasayı izler ve kalın kuyrukları korur. O da bir yaklaşıklıktır ve ortalamayı sıfır alır.",
+    "Scales the one-period figures by the square root of time: an approximation that assumes independent returns. It is checked against what happened over stretches that do not overlap.": "Tek dönemlik değerleri zamanın kareköküyle ölçekler: getirilerin bağımsız olduğunu varsayan bir yaklaşıklık. Birbiriyle örtüşmeyen dönemlerde yaşananlarla karşılaştırılarak sınanır.",
+    "Multi-period check": "Çok dönemli kontrol",
+    "The square-root figures were breached **{n} times** in {periods} stretches of {h} periods ({expected} expected): consistent with the confidence level (Kupiec p {p}).": "Karekök değerleri, {h} dönemlik {periods} aralıkta **{n} kez** aşıldı (beklenen {expected}): güven düzeyiyle tutarlı (Kupiec p {p}).",
+    "The square-root figures were breached **{n} times** in {periods} stretches of {h} periods ({expected} expected): the rule understates the risk over this history (Kupiec p {p}).": "Karekök değerleri, {h} dönemlik {periods} aralıkta **{n} kez** aşıldı (beklenen {expected}): kural bu geçmişte riski olduğundan düşük gösteriyor (Kupiec p {p}).",
+    "The square-root figures were breached **{n} times** in {periods} stretches of {h} periods ({expected} expected): the rule overstates the risk over this history (Kupiec p {p}).": "Karekök değerleri, {h} dönemlik {periods} aralıkta **{n} kez** aşıldı (beklenen {expected}): kural bu geçmişte riski olduğundan yüksek gösteriyor (Kupiec p {p}).",
+    "Breaches of the {h}-period value at risk": "{h} dönemlik riske maruz değerin ihlalleri",
+    "{n} in {periods} stretches that do not overlap, {expected} expected (Kupiec p {p})": "örtüşmeyen {periods} aralıkta {n}, beklenen {expected} (Kupiec p {p})",
     "Against the benchmark": "Kıyasa göre",
     "Rolling window against a filtered estimate": "Kayan pencere ve filtrelenmiş tahmin",
     "Benchmark comparison": "Kıyas karşılaştırması",
@@ -438,6 +452,10 @@
     [
       "^Prices of (.+) come from the copy saved on (\\S+) because (.+) could not be reached: they may be out of date$",
       "$1 fiyatları, $3 erişilemediği için $2 tarihinde kaydedilen kopyadan alındı: güncel olmayabilir"
+    ],
+    [
+      "^The (\\d+)-period figures come from a filtered historical simulation: ([\\d,]+) paths from the current EWMA volatility \\(decay ([\\d.]+)\\), drawing the history's standardised returns, with zero mean$",
+      "$1 dönemlik değerler süzülmüş tarihsel simülasyondan gelir: güncel EWMA volatilitesinden ($3 sönümleme katsayısıyla) $2 yol, geçmişin standartlaştırılmış getirileri çekilerek, ortalama sıfır alınarak"
     ],
     [
       "^Every asset needs the same number of observations$",
