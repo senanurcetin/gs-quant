@@ -59,6 +59,8 @@ def build_payload(
                     'backtest': result['backtest'],
                     'settings': result['settings'],
                     'assumptions': result['assumptions'],
+                    'horizon': result['horizon'],
+                    'ewma': result['ewma'],
                     **{k: v for k, v in result['series'].items() if k not in SHARED_KEYS},
                 }
         data[scenario] = {'shared': shared, 'variants': variants}

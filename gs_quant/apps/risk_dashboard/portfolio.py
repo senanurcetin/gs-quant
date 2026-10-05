@@ -131,6 +131,9 @@ def analyze_portfolio(
     window: int = 250,
     minimum_acceptable_return: float = 0.0,
     periods_per_year: Optional[int] = None,
+    horizon: int = 1,
+    benchmark: Optional[list[float]] = None,
+    benchmark_name: str = 'Benchmark',
 ) -> dict:
     """The dashboard analysis of a portfolio of assets held at constant weights, plus its decomposition by asset"""
     frame, assumptions = build_frame(assets, dates, kind)
@@ -141,8 +144,19 @@ def analyze_portfolio(
     if (portfolio <= -1).any():
         raise AnalysisError('The portfolio lost more than 100% in a period, which the analysis cannot handle')
     result = analysis.analyze(
-        portfolio, confidence, method, window, minimum_acceptable_return, periods_per_year, assumptions
+        portfolio, confidence, method, window, minimum_acceptable_return, periods_per_year, assumptions, horizon
     )
     result['stress'] = analysis.stress(portfolio, frame)
     result['portfolio'] = _decompose(frame, w, portfolio, confidence, result['settings']['periods_per_year'])
+    if benchmark is not None:
+        try:
+            returns, notes = analysis.build_series(benchmark, dates, kind)
+        except AnalysisError as e:
+            raise AnalysisError(f'{benchmark_name}: {e}') from e
+        if len(returns) != len(portfolio):
+            raise AnalysisError('The benchmark needs the same number of observations as the assets')
+        returns.index = portfolio.index
+        result['benchmark'] = analysis.versus_benchmark(
+            portfolio, returns, benchmark_name, result['settings']['periods_per_year']
+        )
     return result

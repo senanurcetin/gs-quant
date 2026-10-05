@@ -345,11 +345,14 @@ class TestApi:
             'window': 250,
             'minimum_acceptable_return': 0.0,
             'periods_per_year': 252,
+            'horizon': 1,
         }
         assert set(payload) == {
             'summary',
             'backtest',
             'settings',
+            'horizon',
+            'ewma',
             'series',
             'histogram',
             'qq',

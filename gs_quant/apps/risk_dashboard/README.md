@@ -43,6 +43,21 @@ reason a freshly installed command is "not recognized" on Windows. It listens on
   the notes of the analysis. Not covered: holiday calendars differ between markets, so only dates on which every symbol
   traded are used.
   Daily closes only: there are no intraday or real-time prices. Switch it off with `RISK_APP_MARKET_DATA=off`.
+- **Horizon**: the *Horizon* setting (1 to 60 periods) adds the multi-period VaR and expected shortfall to the headline.
+  They are the one-period figures times the square root of the horizon, capped at a loss of 100%. That rule is an
+  approximation that assumes independent returns and no drift: it understates the risk when returns trend or when
+  volatility clusters. The assumption is stated in the notes of the analysis whenever the horizon is more than one period.
+- **Rolling window against a filtered estimate**: next to the rolling-window figures, the page shows an exponentially
+  weighted (EWMA, RiskMetrics decay 0.94, zero mean) volatility, a normal VaR from it, and how that VaR fared against the
+  periods that followed (Kupiec test over the same periods as the rolling estimate). The filtered line is drawn on the VaR
+  chart. It reacts faster than a long window: on the *Regime shift* sample (1,000 periods, seed 7) the 250-period rolling VaR at
+  95% is breached 63 times and the filtered one 41 times, against 37.5 expected. The table also says whether recent periods
+  were calmer or more turbulent than the window as a whole.
+- **Benchmark**: in a portfolio loaded by symbol, a benchmark symbol (`XU100.IS`, `^GSPC`) adds beta, correlation,
+  R-squared, annualized alpha, active return, tracking error and the information ratio of the portfolio against it. Beta
+  is the covariance with the benchmark over its variance, over the periods both have; the benchmark is converted to the
+  same currency as the assets. The API takes `benchmark` (values of the same kind and on the same dates as the assets) and
+  `benchmark_name`. A named portfolio keeps its benchmark symbol.
 - **Turkish and English**: the page opens in the language of the browser and the button in the header switches it (the
   choice is remembered in the browser). Turkish writes numbers its own way: a decimal comma and the percent sign in front,
   `−%0,92`. Assumptions and the usual error messages that come from the server are translated by the page too; a message it
@@ -55,8 +70,8 @@ reason a freshly installed command is "not recognized" on Windows. It listens on
   sum at its weights, shown beside how many times the VaR and the expected shortfall that is. It is a first-order answer,
   made in the same way for any asset: no betas or correlations are assumed, so a "market falls 10%" scenario means entering
   the fall of each asset yourself. Scenarios are saved with the analysis and appear, read-only, in its report.
-- **My portfolios**: a portfolio loaded by symbol can be saved under a name (symbols, weights, currency and the length of
-  history, not the prices). Opening one fetches fresh prices and applies the saved weights, so the same portfolio can be
+- **My portfolios**: a portfolio loaded by symbol can be saved under a name (symbols, weights, benchmark, currency and the
+  length of history, not the prices). Opening one fetches fresh prices and applies the saved weights, so the same portfolio can be
   looked at again next month without typing it. Saving under an existing name (case ignored) replaces it. Portfolios from an
   uploaded CSV have no symbols and cannot be saved this way: save the analysis instead.
 - **Saved analyses**: name an analysis and it is kept in a SQLite file. Opening it recomputes it, so it always reflects
@@ -171,8 +186,8 @@ prices are not covered, both sources being used for daily closes.
 | `GET /api/config` | Limits, and whether a token is needed |
 | `GET /api/market/prices?symbols=a,b&start=&base=` | Closing prices by symbol from the configured provider (404 when none is configured); the answer can be sent as `prices` to `/api/analyze` or `/api/portfolio` |
 | `GET /api/scenarios`, `GET /api/sample?scenario=&n=&seed=` | The sample scenarios and their simulated returns |
-| `POST /api/analyze` | Body: `returns` or `prices`, optional `dates`, `scenarios` (a list of `{name, shocks}`, shocks by asset name as fractions, `series` for a single series; at most five), `confidence` (0.8 to 0.999), `method` (`historical`, `parametric`, `cornish_fisher`), `window`, `minimum_acceptable_return`, `periods_per_year`. At most 5,000 observations. |
-| `POST /api/portfolio` | Body: `assets` (name to values), `kind` (`returns` or `prices`), optional `weights` (name to weight, equal weights if omitted, scaled to sum to 1) and the same settings. Answers like `/api/analyze` plus a `portfolio` section. |
+| `POST /api/analyze` | Body: `returns` or `prices`, optional `dates`, `scenarios` (a list of `{name, shocks}`, shocks by asset name as fractions, `series` for a single series; at most five), `confidence` (0.8 to 0.999), `method` (`historical`, `parametric`, `cornish_fisher`), `window`, `horizon` (1 to 60), `minimum_acceptable_return`, `periods_per_year`. At most 5,000 observations. |
+| `POST /api/portfolio` | Body: `assets` (name to values), `kind` (`returns` or `prices`), optional `weights` (name to weight, equal weights if omitted, scaled to sum to 1), optional `benchmark` and `benchmark_name`, and the same settings. Answers like `/api/analyze` plus a `portfolio` section (and `benchmark` when one was given). |
 | `GET /api/portfolios`, `POST /api/portfolios` | List the named portfolios; keep one, `{name, symbols, weights, base, years}` (2 to 10 symbols, weights for exactly those, `years` 1, 3, 5, 10 or null for all). A name that exists is replaced (`200`, else `201`); beyond the limit `409` |
 | `GET /api/portfolios/{id}`, `DELETE /api/portfolios/{id}` | The definition of one, or delete it |
 | `GET /api/runs`, `POST /api/runs` | List the saved analyses; save one: `{name, kind: "single" or "portfolio", request}`, where `request` is the body of the matching analysis endpoint. The request is analysed first, so only valid ones are stored. |

@@ -85,11 +85,15 @@
 
   // What the server is sent for a dataset and the model settings: the same body is analysed and saved
   function requestBody(dataset, settings) {
-    const body = { confidence: settings.confidence, method: settings.method, window: settings.window };
+    const body = { confidence: settings.confidence, method: settings.method, window: settings.window, horizon: settings.horizon || 1 };
     if (dataset.portfolio) {
       body.assets = dataset.assets;
       body.kind = dataset.kind;
       if (dataset.weights) body.weights = dataset.weights;
+      if (dataset.benchmark) {
+        body.benchmark = dataset.benchmark.values;
+        body.benchmark_name = dataset.benchmark.name;
+      }
     } else {
       body[dataset.kind] = dataset.values;
     }
@@ -458,6 +462,13 @@
       [t('{conf} value at risk', { conf }), pct(risk.var), t('one period, {method}', { method: methodName(settings.method) })],
       [t('{conf} expected shortfall', { conf }), pct(risk.es), t('average return on breach periods')],
     ];
+    if (result.horizon && result.horizon.periods > 1) {
+      const h = result.horizon;
+      items.push(
+        [t('{conf} value at risk, {n} periods', { conf, n: h.periods }), pct(h.var), t('square root of time')],
+        [t('{conf} expected shortfall, {n} periods', { conf, n: h.periods }), pct(h.expected_shortfall), t('square root of time')],
+      );
+    }
     const list = $('#headline');
     list.replaceChildren();
     for (const [name, value, sub] of items) {
@@ -670,6 +681,73 @@
   }
 
   // ------------------------------------------------------------------------------------------------------------------
+  // The filtered (EWMA) estimate next to the rolling window, and the benchmark
+  // ------------------------------------------------------------------------------------------------------------------
+
+  function fillMeasures(table, rows) {
+    table.replaceChildren(element('thead', {}, [element('tr', {}, [t('Measure'), t('Value')].map((h) => element('th', { text: h, attributes: { scope: 'col' } })))]));
+    const body = element('tbody');
+    for (const [name, what, value] of rows) {
+      body.appendChild(
+        element('tr', {}, [
+          element('th', { attributes: { scope: 'row' } }, [name, element('span', { className: 'what', text: what })]),
+          element('td', { className: 'num' }, [value]),
+        ]),
+      );
+    }
+    table.appendChild(body);
+  }
+
+  function renderEwma(result) {
+    const e = result.ewma;
+    const section = $('#table-ewma').closest('section');
+    section.hidden = !e;
+    if (!e) return;
+    const { settings } = result;
+    const conf = confidenceLabel(settings.confidence);
+    const expected = e.expected_rate * e.observations;
+    const risk = headlineRisk(result);
+    const ratio = isNumber(e.window_volatility) && e.window_volatility > 0 ? e.volatility / e.window_volatility - 1 : 0;
+    let text;
+    if (Math.abs(ratio) < 0.1) {
+      text = t('The filtered volatility, **{ewma}**, is close to the {window}-period figure of {rolling}: recent periods look much like the window as a whole.', { ewma: pct(e.volatility, 1), window: settings.window, rolling: pct(e.window_volatility, 1) });
+    } else if (ratio > 0) {
+      text = t('The filtered volatility, **{ewma}**, is {more} above the {window}-period figure of {rolling}: recent periods have been more turbulent than the window as a whole.', { ewma: pct(e.volatility, 1), window: settings.window, rolling: pct(e.window_volatility, 1), more: pct(ratio, 0) });
+    } else {
+      text = t('The filtered volatility, **{ewma}**, is {less} below the {window}-period figure of {rolling}: recent periods have been calmer than the window as a whole.', { ewma: pct(e.volatility, 1), window: settings.window, rolling: pct(e.window_volatility, 1), less: pct(-ratio, 0) });
+    }
+    setTakeaway('#takeaway-ewma', text);
+    fillMeasures($('#table-ewma'), [
+      [t('Volatility, whole series'), t('annualized'), pct(e.full_volatility, 2)],
+      [t('Volatility, last {window} periods', { window: settings.window }), t('annualized'), pct(e.window_volatility, 2)],
+      [t('Volatility, filtered'), t('annualized, exponentially weighted with decay {decay}', { decay: num(e.decay, 2) }), pct(e.volatility, 2)],
+      [t('{conf} value at risk, rolling window', { conf }), t('one period, {method}', { method: methodName(settings.method) }), pct(risk.var, 2)],
+      [t('{conf} value at risk, filtered', { conf }), t('one period, normal, from the filtered volatility'), pct(e.var, 2)],
+      [t('Breaches of the filtered value at risk'), t('{n} in {periods} periods, {expected} expected (Kupiec p {p})', { n: e.exceedances, periods: integer(e.observations), expected: num(expected, 1), p: pValue(e.p_value) }), resultCell(e.reject)],
+    ]);
+  }
+
+  function renderBenchmark(result) {
+    const b = result.benchmark;
+    $('#benchmark-section').hidden = !b;
+    if (!b) return;
+    const direction = b.beta >= 0 ? t('in the same direction') : t('in the opposite direction');
+    let text = t('Beta **{beta}** against {name}: for each 1% the benchmark has moved, the portfolio has moved {move}% on average, {direction}. The benchmark explains {share} of the variance of the portfolio.', { beta: num(b.beta, 2), name: b.name, move: num(Math.abs(b.beta), 2), direction, share: pct(b.r_squared, 0) });
+    text += ' ' + t('Tracking error is {te} a year, and the information ratio is {ir}.', { te: pct(b.tracking_error, 1), ir: num(b.information_ratio, 2) });
+    setTakeaway('#takeaway-benchmark', text);
+    fillMeasures($('#table-benchmark'), [
+      [t('Beta'), t('sensitivity to the benchmark: covariance divided by its variance'), num(b.beta, 2)],
+      [t('Correlation'), t('{n} periods in common', { n: integer(b.observations) }), num(b.correlation, 2)],
+      [t('R-squared'), t('share of variance explained by the benchmark'), pct(b.r_squared, 1)],
+      [t('Alpha'), t('annualized return not explained by beta'), pct(b.alpha, 2)],
+      [t('Active return'), t('annualized, portfolio minus benchmark'), pct(b.active_return, 2)],
+      [t('Tracking error'), t('annualized volatility of the active return'), pct(b.tracking_error, 2)],
+      [t('Information ratio'), t('active return per unit of tracking error'), num(b.information_ratio, 2)],
+      [t('Volatility'), t('annualized: portfolio, then {name}', { name: b.name }), `${pct(b.volatility, 1)} · ${pct(b.benchmark_volatility, 1)}`],
+    ]);
+  }
+
+  // ------------------------------------------------------------------------------------------------------------------
   // Stress: the worst stretches that actually happened
   // ------------------------------------------------------------------------------------------------------------------
 
@@ -853,7 +931,7 @@
   }
 
   function drawVar(container, result) {
-    const { dates, returns, var: varSeries, expected_shortfall: es, breach } = result.series;
+    const { dates, returns, var: varSeries, expected_shortfall: es, ewma_var: ewmaVar, breach } = result.series;
     const n = dates.length;
     const conf = confidenceLabel(result.settings.confidence);
     const { test, expected } = breachFacts(result);
@@ -869,12 +947,13 @@
         { kind: 'bar', label: t('Breach'), className: 'bar breach-key' },
         { label: t('{conf} VaR', { conf }) },
         { label: t('Expected shortfall'), className: 'second dashed' },
+        ...(ewmaVar ? [{ label: t('Filtered VaR (EWMA)'), className: 'third dashed' }] : []),
       ];
       const top = plotTop(legendLayout(legendItems, left, right).rows);
       const bottom = top + 240;
       const svg = makeSvg(width, bottom + 40, label);
       const x = linearScale(0, Math.max(n - 1, 1), left, right);
-      const [lo, hi] = extent([returns, varSeries, es]);
+      const [lo, hi] = extent([returns, varSeries, es, ...(ewmaVar ? [ewmaVar] : [])]);
       const scale = niceTicks(lo, hi, 6);
       const y = linearScale(scale.min, scale.max, bottom, top);
       gridAndYAxis(svg, { left, right, top, bottom, y, ticks: scale.ticks, format: (v) => pct(v, 1) });
@@ -894,6 +973,7 @@
       svg.appendChild(svgEl('line', { x1: left, x2: right, y1: zero, y2: zero, class: 'line ref' }));
       svg.appendChild(svgEl('path', { d: linePath(varSeries, x, y), class: 'line' }));
       svg.appendChild(svgEl('path', { d: linePath(es, x, y), class: 'line second dashed' }));
+      if (ewmaVar) svg.appendChild(svgEl('path', { d: linePath(ewmaVar, x, y), class: 'line third dashed' }));
       svg.appendChild(svgEl('path', { d: breached, class: 'bars breach', 'stroke-width': Math.max(Number(barWidth), 2).toFixed(2) }));
       dateAxis(svg, { labels: dates, x, left, right, y: bottom });
       axisTitle(svg, t('Daily return'), { x: 14, y: (top + bottom) / 2, rotate: true });
@@ -904,6 +984,7 @@
         container, svg, count: n, left, right, top, bottom, x,
         describe: (i) => {
           const lines = [[dates[i]], [t('Return'), pct(returns[i], 2)], [t('VaR forecast'), pct(varSeries[i], 2)], [t('Expected shortfall'), pct(es[i], 2)]];
+          if (ewmaVar) lines.push([t('Filtered VaR (EWMA)'), pct(ewmaVar[i], 2)]);
           if (breach[i]) lines.push([t('Breach')]);
           return lines;
         },
@@ -1034,6 +1115,8 @@
     renderTests(result);
     renderPortfolio(result);
     renderStress(result);
+    renderBenchmark(result);
+    renderEwma(result);
     renderWhatIf(result);
     renderNotes(result);
     drawGrowth($('#chart-growth'), result);
@@ -1200,7 +1283,7 @@
   const confidenceValue = () => (api.confidences ? api.confidences[Number($('#confidence').value)] : Number($('#confidence').value));
 
   function settings() {
-    return { confidence: confidenceValue(), method: $('#method').value, window: Number($('#window').value) };
+    return { confidence: confidenceValue(), method: $('#method').value, window: Number($('#window').value), horizon: Math.max(1, Math.round(Number($('#horizon').value) || 1)) };
   }
 
   // The rolling window must be shorter than the series: a short history gets a window that fits instead of an error
@@ -1359,6 +1442,7 @@
     field.hidden = !state.marketSource;
     if (!state.marketSource) return;
     const portfolio = state.mode === 'portfolio';
+    $('#benchmark-row').hidden = !portfolio;
     $('#symbols-label').textContent = portfolio ? t('Load several symbols') : t('Load by symbol');
     $('#symbols').placeholder = portfolio ? 'THYAO.IS, GARAN.IS, ASELS.IS' : 'THYAO.IS';
     const adjusted = state.marketSource === 'Yahoo Finance';
@@ -1379,6 +1463,7 @@
       setStatus(portfolio ? t('Give at least two symbols, separated by commas.') : t('Give one symbol, or switch to a portfolio for several.'), true);
       return;
     }
+    const benchmark = portfolio ? $('#benchmark').value.trim().toUpperCase() : '';
     const years = $('#market-history').value;
     let start = null;
     if (years !== 'all') {
@@ -1389,13 +1474,18 @@
     setStatus(t('Loading prices from {source}…', { source: state.marketSource }));
     try {
       const base = $('#market-base').value;
-      const data = await api.marketPrices(symbols, start, base);
+      const upper = symbols.map((s) => s.toUpperCase());
+      const fetched = benchmark && !upper.includes(benchmark) ? [...symbols, benchmark] : symbols;
+      const data = await api.marketPrices(fetched, start, base);
       const inBase = data.base && Object.keys(data.converted).length ? ' ' + t('in {currency}', { currency: data.base }) : '';
       if (portfolio) {
+        const held = data.symbols.filter((s) => s !== benchmark || upper.includes(benchmark));
+        const assets = Object.fromEntries(held.map((s) => [s, data.prices[s]]));
         setDataset({
-          id: 'portfolio', portfolio: true, simulated: false, market: data.source, title: `${data.symbols.join(', ')}${inBase}`, notes: data.notes, kind: 'prices',
-          assets: data.prices, dates: data.dates, weights: options.weights ? scaledWeights(options.weights, data.symbols) : equalWeights(data.symbols),
-          symbols: data.symbols, base: base || null, years: years === 'all' ? null : Number(years),
+          id: 'portfolio', portfolio: true, simulated: false, market: data.source, title: `${held.join(', ')}${inBase}`, notes: data.notes, kind: 'prices',
+          assets, dates: data.dates, weights: options.weights ? scaledWeights(options.weights, held) : equalWeights(held),
+          symbols: held, base: base || null, years: years === 'all' ? null : Number(years),
+          benchmark: benchmark ? { name: benchmark, values: data.prices[benchmark] } : null,
         });
         renderWeights();
       } else {
@@ -1425,7 +1515,7 @@
     const saveable = Boolean(loaded && loaded.symbols);
     $('#book-form').hidden = !saveable;
     $('#book-hint').textContent = saveable
-      ? t('Saves the symbols, the weights, the currency and the history. Opening one loads fresh prices.')
+      ? t('Saves the symbols, the weights, the currency, the history and the benchmark. Opening one loads fresh prices.')
       : t('Load prices by symbol above, set the weights, and the portfolio can be saved here.');
     $('#book-empty').hidden = state.book.length > 0;
     const list = $('#book');
@@ -1465,7 +1555,7 @@
       return;
     }
     try {
-      await api.saveBook({ name, symbols: loaded.symbols, weights, base: loaded.base, years: loaded.years });
+      await api.saveBook({ name, symbols: loaded.symbols, weights, base: loaded.base, years: loaded.years, benchmark: loaded.benchmark ? loaded.benchmark.name : null });
       state.book = await api.listBook();
       updateBook();
       setStatus(t('Portfolio “{name}” saved.', { name }));
@@ -1485,6 +1575,7 @@
       }
       base.value = definition.base || '';
       $('#market-history').value = definition.years ? String(definition.years) : 'all';
+      $('#benchmark').value = definition.benchmark || '';
       $('#book-name').value = name;
       await loadMarket({ weights: definition.weights });
     } catch (error) {
@@ -1610,6 +1701,7 @@
       return {
         id: 'portfolio', portfolio: true, simulated: false, title: run.name, kind: request.kind, assets: request.assets,
         dates: request.dates || null, weights: request.weights || equalWeights(names), scenarios: request.scenarios || [],
+        benchmark: request.benchmark ? { name: request.benchmark_name || 'Benchmark', values: request.benchmark } : null,
       };
     }
     const kind = request.prices ? 'prices' : 'returns';
@@ -1628,6 +1720,7 @@
       $('#method').value = saved.method;
       $('#method-hint').textContent = methodHint(saved.method);
       $('#window').value = saved.window;
+      $('#horizon').value = saved.horizon || 1;
       renderWeights();
       state.request += 1; // a calculation still in flight must not replace this result
       $('#results').hidden = false;
@@ -1775,6 +1868,7 @@
       $('#window').value = api.window;
       $('#window').closest('.field').hidden = true;
     }
+    if (api.staticMode) $('#horizon-field').hidden = true; // a static export holds results for one horizon
     if (!fixed) $('#confidence-out').textContent = confidenceLabel(confidenceValue());
     setMode('single');
 
@@ -1797,6 +1891,7 @@
       scheduleRun(0);
     });
     $('#window').addEventListener('change', () => scheduleRun(0));
+    $('#horizon').addEventListener('change', () => scheduleRun(0));
     $('#download').addEventListener('click', download);
     document.querySelectorAll('input[name="kind"]').forEach((radio) =>
       radio.addEventListener('change', () => {
@@ -1818,12 +1913,14 @@
     if (fixed) return;
 
     $('#market-load').addEventListener('click', loadMarket);
-    $('#symbols').addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        loadMarket();
-      }
-    });
+    for (const input of [$('#symbols'), $('#benchmark')]) {
+      input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          loadMarket();
+        }
+      });
+    }
 
     // portfolio
     document.querySelectorAll('input[name="mode"]').forEach((radio) => radio.addEventListener('change', () => switchMode(radio.value)));

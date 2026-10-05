@@ -135,6 +135,12 @@ def test_server_messages_are_matched_by_the_patterns():
         'The assets are quoted in different currencies, so prices were converted to TRY',
         'The rolling window (250) must be shorter than the series (100 returns)',
         'Scenario "Crash": unknown asset "Z"',
+        'The 10-period figures scale the one-period value at risk and expected shortfall by the square root of the '
+        'horizon, which assumes independent returns and no drift',
+        'At least 30 periods in common with the benchmark are needed',
+        'The benchmark does not vary, so there is nothing to compare against',
+        'The benchmark needs the same number of observations as the assets',
+        'XU100.IS: Got 300 dates for 250 values',
     ]
     script = (
         "global.window = {}; global.localStorage = { getItem() { return 'tr'; }, setItem() {} };"
@@ -148,6 +154,7 @@ def test_server_messages_are_matched_by_the_patterns():
 
     assert all(a != b for a, b in zip(out, messages)), [b for a, b in zip(out, messages) if a == b]
     assert out[1] == 'Eşit ağırlık (her biri %33.3) varsayıldı'
+    assert out[-1] == 'XU100.IS: 250 değer için 300 tarih verildi'
     # a message nobody translated is returned as it came
     unknown = subprocess.run(
         [node, '-e', script, json.dumps(['Something new'])], capture_output=True, text=True, check=True

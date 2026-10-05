@@ -287,7 +287,53 @@
     "Name this portfolio": "Bu portföye ad ver",
     "Save portfolio": "Portföyü kaydet",
     "No portfolios yet.": "Henüz portföy yok.",
-    "Saves the symbols, the weights, the currency and the history. Opening one loads fresh prices.": "Sembolleri, ağırlıkları, para birimini ve geçmişi kaydeder. Bir portföyü açınca güncel fiyatlar yüklenir.",
+    "Saves the symbols, the weights, the currency, the history and the benchmark. Opening one loads fresh prices.": "Sembolleri, ağırlıkları, para birimini, geçmişi ve kıyası kaydeder. Bir portföyü açınca güncel fiyatlar yüklenir.",
+    "Benchmark symbol (optional)": "Kıyas sembolü (isteğe bağlı)",
+    "Adds beta, tracking error and the information ratio against it, for example XU100.IS or ^GSPC.": "Kıyasa göre beta, izleme hatası ve bilgi oranını ekler; örneğin XU100.IS veya ^GSPC.",
+    "Horizon (periods)": "Ufuk (dönem)",
+    "1 is a single period. A longer horizon scales the one-period figures by the square root of time, an approximation that assumes independent returns.": "1, tek dönem demektir. Daha uzun bir ufuk, tek dönemlik değerleri zamanın kareköküyle ölçekler; getirilerin birbirinden bağımsız olduğunu varsayan bir yaklaşıklıktır.",
+    "Against the benchmark": "Kıyasa göre",
+    "Rolling window against a filtered estimate": "Kayan pencere ve filtrelenmiş tahmin",
+    "Benchmark comparison": "Kıyas karşılaştırması",
+    "Rolling and filtered estimates": "Kayan pencere ve filtrelenmiş tahminler",
+    "{conf} value at risk, {n} periods": "{conf} riske maruz değer, {n} dönem",
+    "square root of time": "zamanın karekökü",
+    "{conf} expected shortfall, {n} periods": "{conf} beklenen kayıp, {n} dönem",
+    "Measure": "Ölçüt",
+    "Value": "Değer",
+    "The filtered volatility, **{ewma}**, is close to the {window}-period figure of {rolling}: recent periods look much like the window as a whole.": "Filtrelenmiş volatilite **{ewma}**, {window} dönemlik {rolling} değerine yakın: son dönemler pencerenin geneline benziyor.",
+    "The filtered volatility, **{ewma}**, is {more} above the {window}-period figure of {rolling}: recent periods have been more turbulent than the window as a whole.": "Filtrelenmiş volatilite **{ewma}**, {window} dönemlik {rolling} değerinin {more} üzerinde: son dönemler pencerenin geneline göre daha çalkantılı.",
+    "The filtered volatility, **{ewma}**, is {less} below the {window}-period figure of {rolling}: recent periods have been calmer than the window as a whole.": "Filtrelenmiş volatilite **{ewma}**, {window} dönemlik {rolling} değerinin {less} altında: son dönemler pencerenin geneline göre daha sakin.",
+    "Volatility, whole series": "Volatilite, tüm seri",
+    "annualized": "yıllıklandırılmış",
+    "Volatility, last {window} periods": "Volatilite, son {window} dönem",
+    "Volatility, filtered": "Volatilite, filtrelenmiş",
+    "annualized, exponentially weighted with decay {decay}": "yıllıklandırılmış, {decay} sönümlemeyle üstel ağırlıklı",
+    "{conf} value at risk, rolling window": "{conf} riske maruz değer, kayan pencere",
+    "{conf} value at risk, filtered": "{conf} riske maruz değer, filtrelenmiş",
+    "one period, normal, from the filtered volatility": "tek dönem, normal dağılım, filtrelenmiş volatiliteden",
+    "Breaches of the filtered value at risk": "Filtrelenmiş riske maruz değerin ihlalleri",
+    "{n} in {periods} periods, {expected} expected (Kupiec p {p})": "{periods} dönemde {n}, beklenen {expected} (Kupiec p {p})",
+    "in the same direction": "aynı yönde",
+    "in the opposite direction": "ters yönde",
+    "Beta **{beta}** against {name}: for each 1% the benchmark has moved, the portfolio has moved {move}% on average, {direction}. The benchmark explains {share} of the variance of the portfolio.": "{name} kıyasına göre beta **{beta}**: kıyas her %1 hareket ettiğinde portföy ortalama %{move} hareket etti, {direction}. Kıyas, portföy varyansının {share} kadarını açıklıyor.",
+    "Tracking error is {te} a year, and the information ratio is {ir}.": "İzleme hatası yılda {te}, bilgi oranı {ir}.",
+    "Beta": "Beta",
+    "sensitivity to the benchmark: covariance divided by its variance": "kıyasa duyarlılık: kovaryansın kıyas varyansına oranı",
+    "Correlation": "Korelasyon",
+    "{n} periods in common": "ortak {n} dönem",
+    "R-squared": "R-kare",
+    "share of variance explained by the benchmark": "kıyasın açıkladığı varyans payı",
+    "Alpha": "Alfa",
+    "annualized return not explained by beta": "betayla açıklanmayan yıllıklandırılmış getiri",
+    "Active return": "Aktif getiri",
+    "annualized, portfolio minus benchmark": "yıllıklandırılmış, portföy eksi kıyas",
+    "Tracking error": "İzleme hatası",
+    "annualized volatility of the active return": "aktif getirinin yıllıklandırılmış volatilitesi",
+    "Information ratio": "Bilgi oranı",
+    "active return per unit of tracking error": "izleme hatası başına aktif getiri",
+    "annualized: portfolio, then {name}": "yıllıklandırılmış: portföy, sonra {name}",
+    "Filtered VaR (EWMA)": "Filtrelenmiş VaR (EWMA)",
     "Load prices by symbol above, set the weights, and the portfolio can be saved here.": "Yukarıdan sembolle fiyat yükle, ağırlıkları ayarla; portföy burada kaydedilebilir.",
     "Load {name}": "{name} portföyünü yükle",
     "Portfolio “{name}” saved.": "“{name}” portföyü kaydedildi.",
@@ -368,6 +414,22 @@
     [
       "^Asset names must be unique$",
       "Varlık adları benzersiz olmalı"
+    ],
+    [
+      "^The (\\d+)-period figures scale the one-period value at risk and expected shortfall by the square root of the horizon, which assumes independent returns and no drift$",
+      "$1 dönemlik değerler, tek dönemlik riske maruz değeri ve beklenen kaybı ufkun kareköküyle ölçekler; bu, getirilerin bağımsız olduğunu ve sürüklenme olmadığını varsayar"
+    ],
+    [
+      "^At least (\\d+) periods in common with the benchmark are needed$",
+      "Kıyasla ortak en az $1 dönem gerekir"
+    ],
+    [
+      "^The benchmark does not vary, so there is nothing to compare against$",
+      "Kıyas hiç değişmiyor; karşılaştıracak bir şey yok"
+    ],
+    [
+      "^The benchmark needs the same number of observations as the assets$",
+      "Kıyasın gözlem sayısı varlıklarınkiyle aynı olmalı"
     ],
     [
       "^Every asset needs the same number of observations$",
@@ -563,6 +625,12 @@
     for (const [pattern, template] of SERVER_PATTERNS) {
       const match = pattern.exec(message);
       if (match) return template.replace(/\$(\d)/g, (found, i) => (match[Number(i)] === undefined ? found : match[Number(i)]));
+    }
+    // "Asset name: message": the name stays, the message is translated where it is known
+    const named = /^([^:]{1,40}): (.+)$/.exec(message);
+    if (named) {
+      const rest = server(named[2]);
+      if (rest !== named[2]) return `${named[1]}: ${rest}`;
     }
     return message;
   }
