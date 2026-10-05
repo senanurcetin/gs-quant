@@ -201,6 +201,15 @@ close), or why it failed. It exits with status 1 if any provider failed, so it a
 from the machine that will serve the application: a provider can answer from one network and refuse from another (a
 cloud server may be treated differently from a home connection, and Yahoo answers 429 to clients that ask too often).
 
+`gs-quant-risk check-portfolio` goes further: it runs a whole analysis on live data (several symbols quoted in different
+currencies, converted into one, with a benchmark) and prints what each step produced: the dates in common, which exchange
+rate converted which symbol, the volatility and VaR, each asset's share of the risk, the beta and tracking error. It warns
+about what looks wrong (a one-day move of more than 25% is probably a missed split, a short history, a benchmark that does
+not move with the portfolio) and exits with status 1 if a step fails. Defaults are `THYAO.IS,GARAN.IS,AAPL` against
+`XU100.IS` in TRY over three years; change them with `--symbols`, `--benchmark` (`none` for no benchmark), `--base` (`auto`
+to follow the first symbol) and `--years` (`0` for all). Run it on the machine that will serve the application and read the
+output once: the tests of this repository use a provider that answers from memory, so this is what checks the real thing.
+
 Checked against the live services from a Windows PC: Yahoo Finance returned ten years of daily closes for `AAPL` and
 `THYAO.IS`; Stooq answered that it needs an API key, which this application does not support. Intraday and real-time
 prices are not covered, both sources being used for daily closes.
