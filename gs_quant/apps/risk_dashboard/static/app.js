@@ -26,41 +26,98 @@
   // API. The static export replaces this with precomputed results by defining window.RiskApi.
   // ------------------------------------------------------------------------------------------------------------------
 
-  async function requestJson(url, options) {
+  const TOKEN_KEY = 'risk-app-token';
+  let token = '';
+  try {
+    token = sessionStorage.getItem(TOKEN_KEY) || '';
+  } catch (error) {
+    /* storage can be unavailable (private windows, blocked cookies): the token then lives in memory only */
+  }
+
+  function setToken(value) {
+    token = value;
+    try {
+      if (value) sessionStorage.setItem(TOKEN_KEY, value);
+      else sessionStorage.removeItem(TOKEN_KEY);
+    } catch (error) {
+      /* see above */
+    }
+  }
+
+  class ApiError extends Error {
+    constructor(message, status) {
+      super(message);
+      this.status = status;
+    }
+  }
+
+  async function request(url, options = {}) {
+    const headers = { ...(options.headers || {}) };
+    if (token) headers.Authorization = `Bearer ${token}`;
     let response;
     try {
-      response = await fetch(url, options);
+      response = await fetch(url, { ...options, headers });
     } catch (error) {
-      throw new Error('Could not reach the server. Is it still running?');
-    }
-    let payload = null;
-    try {
-      payload = await response.json();
-    } catch (error) {
-      /* not JSON */
+      throw new ApiError('Could not reach the server. Is it still running?', 0);
     }
     if (!response.ok) {
-      throw new Error((payload && payload.error) || `The server answered with status ${response.status}`);
+      let payload = null;
+      try {
+        payload = await response.json();
+      } catch (error) {
+        /* not JSON */
+      }
+      const fallback = response.status === 401 ? 'A valid access token is required.' : `The server answered with status ${response.status}`;
+      throw new ApiError((payload && payload.error) || fallback, response.status);
     }
-    return payload;
+    return response;
+  }
+
+  async function requestJson(url, options) {
+    const response = await request(url, options);
+    return response.status === 204 ? null : response.json();
+  }
+
+  const jsonBody = (body) => ({ headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+  // What the server is sent for a dataset and the model settings: the same body is analysed and saved
+  function requestBody(dataset, settings) {
+    const body = { confidence: settings.confidence, method: settings.method, window: settings.window };
+    if (dataset.portfolio) {
+      body.assets = dataset.assets;
+      body.kind = dataset.kind;
+      if (dataset.weights) body.weights = dataset.weights;
+    } else {
+      body[dataset.kind] = dataset.values;
+    }
+    if (dataset.dates) body.dates = dataset.dates;
+    return body;
   }
 
   const liveApi = {
     staticMode: false,
+    config: () => requestJson('/api/config'),
     scenarios: () => requestJson('/api/scenarios'),
-    async loadScenario(id, title) {
-      const sample = await requestJson(`/api/sample?scenario=${encodeURIComponent(id)}`);
+    async loadScenario(id, title, seed) {
+      const sample = await requestJson(`/api/sample?scenario=${encodeURIComponent(id)}${seed ? `&seed=${seed}` : ''}`);
       return { id, title, simulated: true, kind: 'returns', dates: sample.dates, values: sample.returns };
     },
     analyze(dataset, settings) {
-      const body = { confidence: settings.confidence, method: settings.method, window: settings.window };
-      body[dataset.kind] = dataset.values;
-      if (dataset.dates) body.dates = dataset.dates;
-      return requestJson('/api/analyze', {
+      return requestJson(dataset.portfolio ? '/api/portfolio' : '/api/analyze', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        ...jsonBody(requestBody(dataset, settings)),
       });
+    },
+    listRuns: () => requestJson('/api/runs'),
+    saveRun: (name, dataset, settings) =>
+      requestJson('/api/runs', {
+        method: 'POST',
+        ...jsonBody({ name, kind: dataset.portfolio ? 'portfolio' : 'single', request: requestBody(dataset, settings) }),
+      }),
+    openRun: (id) => requestJson(`/api/runs/${id}`),
+    deleteRun: (id) => requestJson(`/api/runs/${id}`, { method: 'DELETE' }),
+    async reportBlob(id) {
+      return (await request(`/api/runs/${id}/report`)).blob();
     },
   };
   const api = window.RiskApi || liveApi;
@@ -474,10 +531,17 @@
     const { dates } = result.series;
     const dataset = state.dataset;
     const simulated = dataset && dataset.simulated;
-    const tag = element('span', { className: `tag${simulated ? '' : ' real'}`, text: simulated ? 'Simulated data' : 'Your data' });
+    const saved = dataset && dataset.saved;
+    const tagText = saved ? 'Saved report' : simulated ? 'Simulated data' : 'Your data';
+    const tag = element('span', { className: `tag${simulated ? '' : ' real'}`, text: tagText });
     const period = /^\d{4}-\d{2}-\d{2}$/.test(dates[0]) ? `${dates[0]} to ${dates[dates.length - 1]}` : `${dates.length} observations`;
-    const label = simulated ? `${dataset.title} scenario` : 'Uploaded series';
-    $('#provenance').replaceChildren(tag, `${label} · ${integer(result.summary.observations)} returns · ${period}`);
+    const assets = result.portfolio ? `${result.portfolio.assets.length} assets` : '';
+    let label = 'Uploaded series';
+    if (dataset && dataset.title) label = simulated ? `${dataset.title} scenario` : dataset.title;
+    else if (assets) label = 'Uploaded portfolio';
+    const parts = [label, assets, `${integer(result.summary.observations)} returns`, period];
+    if (saved && dataset.createdAt) parts.push(`saved ${dataset.createdAt.slice(0, 10)}`);
+    $('#provenance').replaceChildren(tag, parts.filter(Boolean).join(' · '));
   }
 
   function renderNotes(result) {
@@ -498,6 +562,90 @@
       if (typeof part === 'string') node.append(part);
       else node.append(element('strong', { text: part.strong }));
     }
+  }
+
+  // ------------------------------------------------------------------------------------------------------------------
+  // Portfolio: where the risk comes from
+  // ------------------------------------------------------------------------------------------------------------------
+
+  function shareCell(value) {
+    const width = isNumber(value) ? Math.min(Math.abs(value), 1) * 100 : 0;
+    const bar = element('span', { className: `bar${value < 0 ? ' negative' : ''}`, attributes: { 'aria-hidden': 'true' } });
+    bar.style.width = `${width.toFixed(1)}%`; // set through the CSSOM: inline style attributes are blocked by the policy
+    return element('td', {}, [element('span', { className: 'share' }, [bar, element('span', { text: pct(value, 1) })])]);
+  }
+
+  function correlationCell(value) {
+    const cell = element('td', { text: num(value, 2) });
+    if (isNumber(value)) {
+      const strength = 0.06 + 0.5 * Math.abs(value);
+      cell.style.backgroundColor = value >= 0 ? `rgba(31, 95, 191, ${strength.toFixed(2)})` : `rgba(179, 100, 15, ${strength.toFixed(2)})`;
+    }
+    return cell;
+  }
+
+  function portfolioTakeaway(details, conf) {
+    const lessVolatile = 1 - 1 / details.diversification_ratio;
+    const parts = [
+      'Diversification ratio ',
+      { strong: num(details.diversification_ratio, 2) },
+      `: the portfolio is ${pct(lessVolatile, 0)} less volatile than the weighted average of its assets. `,
+    ];
+    const tail = [...details.assets].filter((a) => isNumber(a.es_contribution));
+    const worst = tail.sort((x, y) => y.es_contribution - y.weight - (x.es_contribution - x.weight))[0];
+    if (worst && worst.es_contribution - worst.weight > 0.05) {
+      parts.push({ strong: worst.name }, ` is ${pct(worst.weight, 0)} of the portfolio but ${pct(worst.es_contribution, 0)} of the loss on the ${details.tail_periods} worst periods (the ${conf} tail).`);
+    } else {
+      parts.push(`Tail losses are spread roughly in line with the weights (${details.tail_periods} periods in the ${conf} tail).`);
+    }
+    setTakeaway('#takeaway-portfolio', parts);
+  }
+
+  function renderPortfolio(result) {
+    const details = result.portfolio;
+    $('#portfolio-section').hidden = !details;
+    if (!details) return;
+    const conf = confidenceLabel(result.settings.confidence);
+    portfolioTakeaway(details, conf);
+
+    const table = $('#table-assets');
+    table.replaceChildren();
+    const heads = ['Asset', 'Weight', 'Volatility', `${conf} VaR alone`, 'Share of volatility', 'Share of expected shortfall'];
+    table.appendChild(element('thead', {}, [element('tr', {}, heads.map((h) => element('th', { text: h, attributes: { scope: 'col' } })))]));
+    const body = element('tbody');
+    for (const asset of details.assets) {
+      body.appendChild(
+        element('tr', {}, [
+          element('th', { text: asset.name, attributes: { scope: 'row' } }),
+          element('td', { text: pct(asset.weight, 1) }),
+          element('td', { text: pct(asset.volatility, 1) }),
+          element('td', { text: pct(asset.var, 2) }),
+          shareCell(asset.volatility_contribution),
+          shareCell(asset.es_contribution),
+        ]),
+      );
+    }
+    body.appendChild(
+      element('tr', {}, [
+        element('th', { text: 'Portfolio', attributes: { scope: 'row' } }),
+        element('td', { text: pct(details.assets.reduce((sum, a) => sum + a.weight, 0), 1) }),
+        element('td', { text: pct(details.portfolio_volatility, 1) }),
+        element('td', { text: pct(headlineRisk(result).var, 2) }),
+        element('td', { text: '100.0%' }),
+        element('td', { text: '100.0%' }),
+      ]),
+    );
+    table.appendChild(body);
+
+    const { names, matrix } = details.correlation;
+    const corr = $('#table-corr');
+    corr.replaceChildren();
+    corr.appendChild(element('thead', {}, [element('tr', {}, [element('td'), ...names.map((n) => element('th', { text: n, attributes: { scope: 'col' } }))])]));
+    const corrBody = element('tbody');
+    names.forEach((name, i) => {
+      corrBody.appendChild(element('tr', {}, [element('th', { text: name, attributes: { scope: 'row' } }), ...matrix[i].map(correlationCell)]));
+    });
+    corr.appendChild(corrBody);
   }
 
   // ------------------------------------------------------------------------------------------------------------------
@@ -749,6 +897,7 @@
     renderHeadline(result);
     renderTables(result);
     renderTests(result);
+    renderPortfolio(result);
     renderNotes(result);
     drawGrowth($('#chart-growth'), result);
     drawVar($('#chart-var'), result);
@@ -792,6 +941,50 @@
     return { id: 'upload', simulated: false, kind, values, dates: dated ? dates : null };
   }
 
+  const DATE_CELL = /^\d{4}-\d{2}-\d{2}/;
+
+  // Several assets side by side: an optional date column, a header with the asset names, one column per asset
+  function parsePortfolioCsv(text, kind, maxAssets) {
+    const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    if (!lines.length) throw new Error('The file is empty.');
+    const delimiter = [',', ';', '\t'].find((d) => lines[0].includes(d)) || ',';
+    let rows = lines.map((line) => line.split(delimiter).map((cell) => cell.trim().replace(/^"|"$/g, '')));
+    const hasHeader = rows[0].some((cell) => !DATE_CELL.test(cell) && Number.isNaN(parseNumber(cell)));
+    const header = hasHeader ? rows[0] : null;
+    if (hasHeader) rows = rows.slice(1);
+    if (!rows.length) throw new Error('The file has no data rows.');
+    if (rows.length > MAX_ROWS) throw new Error(`The file has ${rows.length} rows, the maximum is ${MAX_ROWS}.`);
+
+    const dated = DATE_CELL.test(rows[0][0]);
+    const first = dated ? 1 : 0;
+    const count = rows[0].length - first;
+    if (count < 2) throw new Error('A portfolio needs at least two asset columns.');
+    if (count > maxAssets) throw new Error(`The file has ${count} assets, the maximum is ${maxAssets}.`);
+    const names = [];
+    for (let j = 0; j < count; j++) {
+      const name = header && header[first + j] ? header[first + j] : `Asset ${j + 1}`;
+      if (names.includes(name)) throw new Error(`The asset name "${name}" appears twice.`);
+      names.push(name);
+    }
+    const assets = Object.fromEntries(names.map((n) => [n, []]));
+    const dates = [];
+    rows.forEach((row, i) => {
+      if (row.length !== count + first) throw new Error(`Row ${i + 1} has ${row.length} columns, expected ${count + first}.`);
+      if (dated) {
+        if (!DATE_CELL.test(row[0])) throw new Error(`Row ${i + 1}: the first column must be a date such as 2024-03-29.`);
+        dates.push(row[0].slice(0, 10));
+      }
+      names.forEach((name, j) => {
+        const value = parseNumber(row[first + j]);
+        if (!Number.isFinite(value)) throw new Error(`Row ${i + 1}, ${name}: not a number.`);
+        assets[name].push(value);
+      });
+    });
+    return { id: 'portfolio', portfolio: true, simulated: false, kind, assets, dates: dated ? dates : null, weights: equalWeights(names) };
+  }
+
+  const equalWeights = (names) => Object.fromEntries(names.map((n) => [n, 1 / names.length]));
+
   // A cell that starts with = + @ can be executed as a formula by a spreadsheet, so it is never emitted raw
   const csvCell = (value) => {
     if (value === null || value === undefined) return '';
@@ -806,22 +999,43 @@
     return `${[header, ...rows].map((row) => row.map(csvCell).join(',')).join('\n')}\n`;
   }
 
-  function download() {
-    if (!state.result) return;
-    const blob = new Blob([resultToCsv(state.result)], { type: 'text/csv;charset=utf-8' });
+  function saveBlob(blob, filename) {
     const url = URL.createObjectURL(blob);
-    const link = element('a', { attributes: { href: url, download: 'risk_series.csv' } });
+    const link = element('a', { attributes: { href: url, download: filename } });
     document.body.appendChild(link);
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  function download() {
+    if (!state.result) return;
+    saveBlob(new Blob([resultToCsv(state.result)], { type: 'text/csv;charset=utf-8' }), 'risk_series.csv');
+  }
+
   // ------------------------------------------------------------------------------------------------------------------
   // Wiring
   // ------------------------------------------------------------------------------------------------------------------
 
-  const state = { dataset: null, result: null, request: 0, timer: null };
+  const SAMPLE_PORTFOLIO = [
+    ['calm', 'Calm market', 11],
+    ['volatile', 'Volatile market', 12],
+    ['regime_shift', 'Regime shift', 13],
+  ];
+
+  const state = {
+    dataset: null,
+    datasets: { single: null, portfolio: null },
+    mode: 'single',
+    result: null,
+    request: 0,
+    timer: null,
+    savedRun: null,
+    runs: [],
+    limits: { assets: 10 },
+    scenarios: [],
+    started: false,
+  };
 
   function setStatus(message, isError = false) {
     const status = $('#status');
@@ -829,11 +1043,37 @@
     status.classList.toggle('error', isError);
   }
 
+  // A 401 means the server wants a token: ask for one instead of showing an error
+  function fail(error) {
+    if (error.status === 401) {
+      const rejected = Boolean(token);
+      setToken('');
+      $('#token-form').hidden = false;
+      $('#token').focus();
+      setStatus(rejected ? 'That access token was not accepted.' : 'Enter the access token to continue.', rejected);
+      return;
+    }
+    setStatus(error.message, true);
+  }
+
   // The static export only has results for a grid of confidence levels; the slider then steps through that grid
   const confidenceValue = () => (api.confidences ? api.confidences[Number($('#confidence').value)] : Number($('#confidence').value));
 
   function settings() {
     return { confidence: confidenceValue(), method: $('#method').value, window: Number($('#window').value) };
+  }
+
+  function setDataset(dataset) {
+    state.dataset = dataset;
+    state.datasets[dataset.portfolio ? 'portfolio' : 'single'] = dataset;
+    state.savedRun = null;
+    updateSaveControls();
+  }
+
+  function updateSaveControls() {
+    const report = $('#report'); // not part of the static export
+    if (report) report.hidden = !state.savedRun;
+    renderHistory();
   }
 
   async function run() {
@@ -850,13 +1090,15 @@
       setStatus('');
     } catch (error) {
       if (ticket !== state.request) return;
-      setStatus(error.message, true);
+      fail(error);
     } finally {
       if (ticket === state.request) results.classList.remove('loading');
     }
   }
 
   function scheduleRun(delay = 200) {
+    state.savedRun = null;
+    updateSaveControls();
     clearTimeout(state.timer);
     state.timer = setTimeout(run, delay);
   }
@@ -864,32 +1106,260 @@
   async function chooseScenario(scenario) {
     setStatus('Loading sample data…');
     try {
-      state.dataset = await api.loadScenario(scenario.id, scenario.title);
+      setDataset(await api.loadScenario(scenario.id, scenario.title));
       $('#file').value = '';
       await run();
     } catch (error) {
-      setStatus(error.message, true);
+      fail(error);
     }
   }
 
-  async function init() {
-    const scenarioSelect = $('#scenario');
-    const hint = $('#scenario-hint');
-    let scenarios;
+  // ---- portfolio inputs
+
+  function renderWeights() {
+    const dataset = state.datasets.portfolio;
+    $('#weights-field').hidden = !dataset;
+    if (!dataset) return;
+    const body = $('#weights');
+    body.replaceChildren();
+    Object.keys(dataset.assets).forEach((name, i) => {
+      const input = element('input', { attributes: { id: `weight-${i}`, type: 'number', step: 'any', 'data-asset': name, inputmode: 'decimal' } });
+      input.value = (dataset.weights[name] * 100).toFixed(2).replace(/\.?0+$/, '');
+      input.dataset.exact = String(dataset.weights[name]); // the rounded text must not replace an exact weight such as 1/3
+      body.appendChild(
+        element('tr', {}, [
+          element('th', { attributes: { scope: 'row' } }, [element('label', { text: `${name} (%)`, attributes: { for: `weight-${i}` } })]),
+          element('td', {}, [input]),
+        ]),
+      );
+    });
+    updateWeightsHint();
+  }
+
+  function readWeights() {
+    const weights = {};
+    for (const input of document.querySelectorAll('#weights input')) {
+      const shown = Number(input.value) / 100;
+      const exact = Number(input.dataset.exact);
+      weights[input.dataset.asset] = Math.abs(shown - exact) < 5e-5 ? exact : shown; // untouched inputs keep their exact value
+    }
+    return weights;
+  }
+
+  function updateWeightsHint() {
+    const values = Object.values(readWeights());
+    const total = values.reduce((sum, v) => sum + v, 0);
+    const hint = $('#weights-hint');
+    if (values.some((v) => !Number.isFinite(v))) hint.textContent = 'Every weight must be a number.';
+    else if (Math.abs(total - 1) < 1e-4) hint.textContent = 'The weights sum to 100%.';
+    else hint.textContent = `The weights sum to ${pct(total, 1)}${total > 0 ? ' and are scaled to 100%' : ''}.`;
+  }
+
+  async function loadSamplePortfolio() {
+    setStatus('Loading sample portfolio…');
     try {
-      scenarios = await api.scenarios();
+      const sets = await Promise.all(SAMPLE_PORTFOLIO.map(([id, title, seed]) => api.loadScenario(id, title, seed)));
+      const assets = Object.fromEntries(SAMPLE_PORTFOLIO.map(([, title], i) => [title, sets[i].values]));
+      setDataset({
+        id: 'portfolio', portfolio: true, simulated: true, title: 'Sample portfolio', kind: 'returns',
+        assets, dates: sets[0].dates, weights: equalWeights(Object.keys(assets)),
+      });
+      renderWeights();
+      await run();
     } catch (error) {
-      setStatus(error.message, true);
+      fail(error);
+    }
+  }
+
+  function setMode(mode) {
+    state.mode = mode;
+    document.querySelector(`input[name="mode"][value="${mode}"]`).checked = true;
+    const portfolio = mode === 'portfolio';
+    $('#portfolio-fields').hidden = !portfolio;
+    $('#scenario-field').hidden = portfolio;
+    $('#file-field').hidden = portfolio;
+    $('#mode-hint').textContent = portfolio
+      ? 'Assets held at constant weights, rebalanced every period. Shows what each asset adds to the risk.'
+      : 'One series of returns or prices.';
+  }
+
+  async function switchMode(mode) {
+    setMode(mode);
+    const dataset = state.datasets[mode];
+    if (dataset) {
+      state.dataset = dataset;
+      state.savedRun = null;
+      updateSaveControls();
+      await run();
+    } else {
+      state.dataset = null;
+      $('#results').hidden = true;
+      setStatus(mode === 'portfolio' ? 'Upload a CSV of several assets or load the sample portfolio.' : '');
+      if (mode === 'single') await chooseScenario(state.scenarios.find((s) => s.id === $('#scenario').value));
+    }
+  }
+
+  // ---- saved runs
+
+  const KIND_LABEL = { single: 'Series', portfolio: 'Portfolio' };
+
+  function renderHistory() {
+    const list = $('#history');
+    list.replaceChildren();
+    $('#history-empty').hidden = state.runs.length > 0;
+    for (const item of state.runs) {
+      const current = state.savedRun && state.savedRun.id === item.id;
+      const h = item.headline || {};
+      const meta = [
+        KIND_LABEL[item.kind] || item.kind,
+        item.created_at.slice(0, 16).replace('T', ' '),
+        `${confidenceLabel(h.confidence)} VaR ${pct(h.var, 2)}`,
+        `Basel ${h.zone}`,
+      ].join(' · ');
+      const buttons = element('div', { className: 'buttons' }, [
+        element('button', { className: 'button', text: 'Open', attributes: { type: 'button', 'data-action': 'open', 'aria-label': `Open ${item.name}` } }),
+        element('button', { className: 'button', text: 'Report', attributes: { type: 'button', 'data-action': 'report', 'aria-label': `Download the report of ${item.name}` } }),
+        element('button', { className: 'button danger', text: 'Delete', attributes: { type: 'button', 'data-action': 'delete', 'aria-label': `Delete ${item.name}` } }),
+      ]);
+      list.appendChild(
+        element('li', { className: current ? 'current' : '', attributes: { 'data-id': item.id } }, [
+          element('span', { className: 'name', text: item.name }),
+          element('span', { className: 'meta', text: meta }),
+          buttons,
+        ]),
+      );
+    }
+  }
+
+  async function loadHistory() {
+    try {
+      state.runs = await api.listRuns();
+      renderHistory();
+    } catch (error) {
+      fail(error);
+    }
+  }
+
+  function datasetFromRun(run, request) {
+    if (run.kind === 'portfolio') {
+      const names = Object.keys(request.assets);
+      return {
+        id: 'portfolio', portfolio: true, simulated: false, title: run.name, kind: request.kind, assets: request.assets,
+        dates: request.dates || null, weights: request.weights || equalWeights(names),
+      };
+    }
+    const kind = request.prices ? 'prices' : 'returns';
+    return { id: 'upload', simulated: false, title: run.name, kind, values: request[kind], dates: request.dates || null };
+  }
+
+  async function openRun(id) {
+    setStatus('Opening…');
+    try {
+      const { run: meta, request: saved, result } = await api.openRun(id);
+      setMode(meta.kind === 'portfolio' ? 'portfolio' : 'single');
+      setDataset(datasetFromRun(meta, saved));
+      const confidence = $('#confidence');
+      confidence.value = saved.confidence;
+      $('#confidence-out').textContent = confidenceLabel(saved.confidence);
+      $('#method').value = saved.method;
+      $('#method-hint').textContent = METHOD_HINTS[saved.method];
+      $('#window').value = saved.window;
+      renderWeights();
+      state.request += 1; // a calculation still in flight must not replace this result
+      $('#results').hidden = false;
+      render(result);
+      state.savedRun = meta;
+      $('#run-name').value = meta.name;
+      updateSaveControls();
+      setStatus('');
+      $('#results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (error) {
+      fail(error);
+    }
+  }
+
+  async function saveRun(event) {
+    event.preventDefault();
+    if (!state.dataset) return;
+    const name = $('#run-name').value.trim();
+    if (!name) return;
+    setStatus('Saving…');
+    try {
+      const meta = await api.saveRun(name, state.dataset, settings());
+      state.runs = [meta, ...state.runs];
+      state.savedRun = meta;
+      updateSaveControls();
+      setStatus(`Saved as “${name}”.`);
+    } catch (error) {
+      fail(error);
+    }
+  }
+
+  async function downloadReport(id) {
+    try {
+      saveBlob(await api.reportBlob(id), `risk_report_${id.slice(0, 8)}.html`);
+    } catch (error) {
+      fail(error);
+    }
+  }
+
+  async function removeRun(id) {
+    const item = state.runs.find((r) => r.id === id);
+    if (!item || !window.confirm(`Delete “${item.name}”?`)) return;
+    try {
+      await api.deleteRun(id);
+      state.runs = state.runs.filter((r) => r.id !== id);
+      if (state.savedRun && state.savedRun.id === id) state.savedRun = null;
+      updateSaveControls();
+    } catch (error) {
+      fail(error);
+    }
+  }
+
+  // ---- start up
+
+  // Loads what the server has. Runs again after a token was entered.
+  async function start() {
+    let config = { limits: { assets: 10 } };
+    try {
+      if (api.config) config = await api.config();
+      state.scenarios = await api.scenarios();
+    } catch (error) {
+      fail(error);
       return;
     }
-    for (const scenario of scenarios) scenarioSelect.appendChild(element('option', { text: scenario.title, attributes: { value: scenario.id } }));
-    const chosen = () => scenarios.find((s) => s.id === scenarioSelect.value);
-    const describe = () => {
-      hint.textContent = chosen() ? chosen().description : '';
-    };
-    describe();
+    $('#token-form').hidden = true;
+    setStatus('');
+    state.limits = config.limits;
+    $('#max-assets').textContent = config.limits.assets;
 
-    if (api.staticMode) $('#file').closest('.field').hidden = true;
+    const scenarioSelect = $('#scenario');
+    scenarioSelect.replaceChildren();
+    for (const scenario of state.scenarios) scenarioSelect.appendChild(element('option', { text: scenario.title, attributes: { value: scenario.id } }));
+    describeScenario();
+
+    if (!api.staticMode) {
+      $('#history-panel').hidden = false;
+      await loadHistory();
+    }
+    if (!state.dataset) await chooseScenario(chosenScenario());
+    else await run();
+  }
+
+  const chosenScenario = () => state.scenarios.find((s) => s.id === $('#scenario').value);
+  const describeScenario = () => {
+    $('#scenario-hint').textContent = chosenScenario() ? chosenScenario().description : '';
+  };
+
+  function init() {
+    const fixed = Boolean(api.staticMode && api.fixed);
+    if (fixed) document.body.classList.add('report');
+    if (api.staticMode) {
+      $('#file').closest('.field').hidden = true;
+      $('#mode-field').hidden = true;
+      $('#report').remove();
+      $('#save-form').remove();
+    }
     if (api.confidences) {
       const slider = $('#confidence');
       slider.min = 0;
@@ -901,16 +1371,17 @@
       $('#window').value = api.window;
       $('#window').closest('.field').hidden = true;
     }
-    $('#confidence-out').textContent = confidenceLabel(confidenceValue());
+    if (!fixed) $('#confidence-out').textContent = confidenceLabel(confidenceValue());
+    setMode('single');
 
     const methodHint = () => {
       $('#method-hint').textContent = METHOD_HINTS[$('#method').value];
     };
     methodHint();
 
-    scenarioSelect.addEventListener('change', () => {
-      describe();
-      chooseScenario(chosen());
+    $('#scenario').addEventListener('change', () => {
+      describeScenario();
+      chooseScenario(chosenScenario());
     });
     $('#controls').addEventListener('submit', (event) => event.preventDefault());
     $('#confidence').addEventListener('input', () => {
@@ -933,15 +1404,70 @@
       if (!file) return;
       try {
         const kind = document.querySelector('input[name="kind"]:checked').value;
-        state.dataset = parseCsv(await file.text(), kind);
+        setDataset(parseCsv(await file.text(), kind));
         await run();
       } catch (error) {
         setStatus(error.message, true);
       }
     });
 
-    await chooseScenario(chosen());
+    if (fixed) return;
+
+    // portfolio
+    document.querySelectorAll('input[name="mode"]').forEach((radio) => radio.addEventListener('change', () => switchMode(radio.value)));
+    $('#portfolio-sample').addEventListener('click', loadSamplePortfolio);
+    $('#portfolio-file').addEventListener('change', async () => {
+      const file = $('#portfolio-file').files[0];
+      if (!file) return;
+      try {
+        const kind = document.querySelector('input[name="portfolio-kind"]:checked').value;
+        setDataset(parsePortfolioCsv(await file.text(), kind, state.limits.assets));
+        renderWeights();
+        await run();
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    });
+    document.querySelectorAll('input[name="portfolio-kind"]').forEach((radio) =>
+      radio.addEventListener('change', () => {
+        if ($('#portfolio-file').files.length) $('#portfolio-file').dispatchEvent(new Event('change'));
+      }),
+    );
+    $('#weights').addEventListener('change', () => {
+      updateWeightsHint();
+      const weights = readWeights();
+      if (Object.values(weights).some((v) => !Number.isFinite(v))) return;
+      state.datasets.portfolio.weights = weights;
+      scheduleRun(0);
+    });
+    $('#weights-equal').addEventListener('click', () => {
+      const dataset = state.datasets.portfolio;
+      dataset.weights = equalWeights(Object.keys(dataset.assets));
+      renderWeights();
+      scheduleRun(0);
+    });
+
+    // saved runs
+    $('#save-form').addEventListener('submit', saveRun);
+    $('#report').addEventListener('click', () => state.savedRun && downloadReport(state.savedRun.id));
+    $('#history').addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-action]');
+      if (!button) return;
+      const id = button.closest('li').dataset.id;
+      if (button.dataset.action === 'open') openRun(id);
+      else if (button.dataset.action === 'report') downloadReport(id);
+      else removeRun(id);
+    });
+
+    // access token
+    $('#token-form').addEventListener('submit', (event) => {
+      event.preventDefault();
+      setToken($('#token').value.trim());
+      $('#token').value = '';
+      start();
+    });
   }
 
   init();
+  start();
 })();

@@ -114,12 +114,12 @@ def simulate_returns(scenario: str, n: int = 1000, seed: int = 7) -> pd.Series:
 # ----------------------------------------------------------------------------------------------------------------------
 
 
-def _clean(value: float, digits: int = 6) -> Optional[float]:
+def clean(value: float, digits: int = 6) -> Optional[float]:
     return round(float(value), digits) if value is not None and math.isfinite(value) else None
 
 
-def _list(values, digits: int = 6) -> list[Optional[float]]:
-    return [_clean(v, digits) for v in values]
+def clean_list(values, digits: int = 6) -> list[Optional[float]]:
+    return [clean(v, digits) for v in values]
 
 
 def build_series(
@@ -164,10 +164,10 @@ def _histogram(returns: pd.Series) -> dict:
     width = edges[1] - edges[0]
     mu, sigma = returns.mean(), returns.std(ddof=1)
     return {
-        'centres': _list(centres, 6),
+        'centres': clean_list(centres, 6),
         'counts': [int(c) for c in counts],
-        'normal_counts': _list(stats.norm.pdf(centres, mu, sigma) * width * len(returns), 4),
-        'width': _clean(width, 8),
+        'normal_counts': clean_list(stats.norm.pdf(centres, mu, sigma) * width * len(returns), 4),
+        'width': clean(width, 8),
         'outliers_below': int((returns < low).sum()),
         'outliers_above': int((returns > high).sum()),
     }
@@ -184,7 +184,7 @@ def _qq(returns: pd.Series) -> dict:
     middle = np.flatnonzero(~keep)
     budget = max(QQ_MAX_POINTS - 2 * tail, 20)
     keep[middle[np.linspace(0, len(middle) - 1, min(budget, len(middle))).astype(int)]] = True
-    return {'theoretical': _list(theoretical[keep], 4), 'sample': _list(z[keep], 4)}
+    return {'theoretical': clean_list(theoretical[keep], 4), 'sample': clean_list(z[keep], 4)}
 
 
 def _worst_drawdown(growth: pd.Series) -> dict:
@@ -195,7 +195,7 @@ def _worst_drawdown(growth: pd.Series) -> dict:
     trough = int(np.argmin(depth))
     peak = int(np.argmax(values[: trough + 1]))
     # position 0 is the starting value, before the first return: map back to positions in the returns
-    return {'peak': max(peak - 1, 0), 'trough': max(trough - 1, 0), 'depth': _clean(depth[trough], 6)}
+    return {'peak': max(peak - 1, 0), 'trough': max(trough - 1, 0), 'depth': clean(depth[trough], 6)}
 
 
 def analyze(
@@ -245,8 +245,8 @@ def analyze(
             'independence': asdict(independence),
             'traffic_light': {
                 'zone': light.zone.value,
-                'cumulative_probability': _clean(light.cumulative_probability, 6),
-                'expected_exceedances': _clean(light.expected_exceedances, 4),
+                'cumulative_probability': clean(light.cumulative_probability, 6),
+                'expected_exceedances': clean(light.expected_exceedances, 4),
             },
         },
         'settings': {
@@ -258,11 +258,11 @@ def analyze(
         },
         'series': {
             'dates': labels,
-            'returns': _list(returns, 6),
-            'growth': _list(growth, 6),
-            'drawdown': _list(dd, 6),
-            'var': _list(var.reindex(returns.index), 6),
-            'expected_shortfall': _list(es.reindex(returns.index), 6),
+            'returns': clean_list(returns, 6),
+            'growth': clean_list(growth, 6),
+            'drawdown': clean_list(dd, 6),
+            'var': clean_list(var.reindex(returns.index), 6),
+            'expected_shortfall': clean_list(es.reindex(returns.index), 6),
             'breach': [bool(b) for b in breaches.reindex(returns.index).fillna(False)],
         },
         'histogram': _histogram(returns),
@@ -270,4 +270,19 @@ def analyze(
         'worst_drawdown': _worst_drawdown(growth),
         'assumptions': assumptions,
         'conventions': 'Results are fractions (0.02 is 2%). Losses are negative.',
+    }
+
+
+def headline(result: dict) -> dict:
+    """The few figures that identify a result in a list: its VaR and expected shortfall, the Basel zone and the size"""
+    summary, method = result['summary'], result['settings']['method']
+    es_method = 'historical' if method == VaRMethod.HISTORICAL.value else 'parametric'
+    return {
+        'confidence': result['settings']['confidence'],
+        'method': method,
+        'observations': summary['observations'],
+        'var': clean(summary[f'var_{method}']),
+        'expected_shortfall': clean(summary[f'expected_shortfall_{es_method}']),
+        'volatility': clean(summary['annualized_volatility']),
+        'zone': result['backtest']['traffic_light']['zone'],
     }

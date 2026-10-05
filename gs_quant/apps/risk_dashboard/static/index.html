@@ -13,22 +13,61 @@
   <header class="site-header">
     <div class="wrap">
       <h1>Risk Analytics Dashboard</h1>
-      <p class="lede">Value at risk, expected shortfall and model validation for a return series, computed by
-        <code>gs_quant.timeseries.risk_metrics</code>.</p>
+      <p class="lede" id="lede">Value at risk, expected shortfall and model validation for a return series or a portfolio,
+        computed by <code>gs_quant.timeseries.risk_metrics</code>.</p>
     </div>
   </header>
 
   <main class="wrap">
-    <section class="panel controls" aria-labelledby="controls-title">
+    <form id="token-form" class="panel token-form" autocomplete="off" hidden>
+      <h2 id="token-title">Access token required</h2>
+      <p class="hint">This server asks for an access token. It is kept for this browser tab only.</p>
+      <div class="row">
+        <label class="sr-only" for="token">Access token</label>
+        <input id="token" type="password" autocomplete="off" aria-describedby="token-title" required>
+        <button type="submit" class="button">Unlock</button>
+      </div>
+    </form>
+
+    <section class="panel controls" id="controls-panel" aria-labelledby="controls-title">
       <h2 id="controls-title">Data and model</h2>
       <form id="controls" autocomplete="off">
-        <div class="field">
+        <div class="field" id="mode-field">
+          <span class="label" id="mode-label">Analyse</span>
+          <div class="inline" role="radiogroup" aria-labelledby="mode-label">
+            <label class="choice"><input type="radio" name="mode" value="single" checked> One return series</label>
+            <label class="choice"><input type="radio" name="mode" value="portfolio"> A portfolio of assets</label>
+          </div>
+          <p class="hint" id="mode-hint"></p>
+        </div>
+
+        <div class="contents" id="portfolio-fields" hidden>
+          <div class="field">
+            <label for="portfolio-file">Upload a CSV of several assets</label>
+            <input id="portfolio-file" name="portfolio-file" type="file" accept=".csv,.txt,text/csv,text/plain">
+            <div class="inline" role="radiogroup" aria-label="What the uploaded values are">
+              <label class="choice"><input type="radio" name="portfolio-kind" value="returns" checked> Returns</label>
+              <label class="choice"><input type="radio" name="portfolio-kind" value="prices"> Prices</label>
+            </div>
+            <p class="hint">A header row with the asset names, then <code>date,A,B,C</code> or just <code>A,B,C</code>.
+              Two to <span id="max-assets">10</span> assets with the same number of rows.</p>
+            <button type="button" class="button" id="portfolio-sample">Load a sample portfolio</button>
+          </div>
+          <div class="field" id="weights-field" hidden>
+            <span class="label" id="weights-label">Weights</span>
+            <table class="weights" aria-labelledby="weights-label"><tbody id="weights"></tbody></table>
+            <p class="hint" id="weights-hint"></p>
+            <button type="button" class="button" id="weights-equal">Equal weights</button>
+          </div>
+        </div>
+
+        <div class="field" id="scenario-field">
           <label for="scenario">Sample scenario</label>
           <select id="scenario" name="scenario"></select>
           <p class="hint" id="scenario-hint"></p>
         </div>
 
-        <div class="field">
+        <div class="field" id="file-field">
           <label for="file">Or upload a CSV</label>
           <input id="file" name="file" type="file" accept=".csv,.txt,text/csv,text/plain">
           <div class="inline" role="radiogroup" aria-label="What the uploaded values are">
@@ -63,10 +102,24 @@
 
     <div id="status" class="status" role="status" aria-live="polite"></div>
 
+    <section class="panel history" id="history-panel" aria-labelledby="history-title" hidden>
+      <h2 id="history-title">Saved analyses</h2>
+      <p class="hint" id="history-empty">Nothing saved yet. Run an analysis and give it a name to keep it here.</p>
+      <ul id="history" class="runs"></ul>
+    </section>
+
     <div id="results" class="results" tabindex="-1" hidden>
       <div class="provenance">
         <p id="provenance"></p>
-        <button id="download" type="button" class="button">Download series (CSV)</button>
+        <div class="actions">
+          <form id="save-form" class="save-form" autocomplete="off">
+            <label class="sr-only" for="run-name">Name for this analysis</label>
+            <input id="run-name" type="text" maxlength="120" placeholder="Name this analysis" required>
+            <button type="submit" class="button">Save</button>
+          </form>
+          <button id="report" type="button" class="button" hidden>Download report</button>
+          <button id="download" type="button" class="button">Download series (CSV)</button>
+        </div>
       </div>
 
       <section aria-labelledby="glance-title">
@@ -75,6 +128,18 @@
         <div class="tables">
           <table class="stats" id="table-drawdown"></table>
           <table class="stats" id="table-shape"></table>
+        </div>
+      </section>
+
+      <section class="panel" id="portfolio-section" aria-labelledby="portfolio-title" hidden>
+        <h2 id="portfolio-title">Where the risk comes from</h2>
+        <p class="takeaway" id="takeaway-portfolio"></p>
+        <div class="table-scroll" role="region" aria-label="Risk by asset" tabindex="0">
+          <table class="assets" id="table-assets"></table>
+        </div>
+        <h3 id="corr-title">Correlation of returns</h3>
+        <div class="table-scroll" role="region" aria-label="Correlation matrix" tabindex="0">
+          <table class="corr" id="table-corr" aria-labelledby="corr-title"></table>
         </div>
       </section>
 
@@ -129,6 +194,12 @@
           <dd>Kupiec and independence combined.</dd>
           <dt>Basel traffic light</dt>
           <dd>Green, yellow or red from the binomial probability of seeing this many breaches or fewer if the model were right (95% and 99.99% cut-offs).</dd>
+          <dt>Share of volatility</dt>
+          <dd>Each asset's weight times its covariance with the portfolio, as a fraction of the portfolio variance. The shares add up to 100%.</dd>
+          <dt>Share of expected shortfall</dt>
+          <dd>The weight times the asset's average return on the periods when the portfolio was in its tail (worse than its VaR). Adds up to 100%.</dd>
+          <dt>Diversification ratio</dt>
+          <dd>The weighted average volatility of the assets divided by the volatility of the portfolio. 1 means no diversification.</dd>
           <dt>QQ plot</dt>
           <dd>Sample quantiles, in standard deviations, against normal quantiles. Points on the dashed line mean normal tails; points below it in the left tail mean fatter losses than a normal distribution allows.</dd>
         </dl>
@@ -138,7 +209,7 @@
 
   <footer class="site-footer">
     <div class="wrap">
-      <p>Example application for <a href="https://github.com/goldmansachs/gs-quant">gs-quant</a>. Sample data is simulated
+      <p>Risk analytics application for <a href="https://github.com/goldmansachs/gs-quant">gs-quant</a>. Sample data is simulated
         (GARCH(1,1) with Student-t innovations). Not investment advice.</p>
     </div>
   </footer>

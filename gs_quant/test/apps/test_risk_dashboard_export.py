@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from examples.risk_dashboard import analysis, export
+from gs_quant.apps.risk_dashboard import analysis, export
 from gs_quant.timeseries.risk_metrics import VaRMethod
 
 CONFIDENCES = (0.95, 0.99)

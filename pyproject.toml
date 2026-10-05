@@ -93,6 +93,15 @@ mcp = [
     "pydantic",
 ]
 
+app = [
+    "starlette",
+    "uvicorn>=0.47",
+    "pydantic",
+]
+
+[project.scripts]
+gs-quant-risk = "gs_quant.apps.risk_dashboard.__main__:main"
+
 [project.urls]
 Homepage = "https://marquee.gs.com"
 
@@ -143,6 +152,8 @@ gs_quant = [
     "tutorials/*",
     "docs/*",
     "skills/*/*.md",
+    "apps/risk_dashboard/static/*",
+    "apps/risk_dashboard/static_api.js",
     "_version.py",
 ]
 

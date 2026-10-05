@@ -13,21 +13,3 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 """
-
-import argparse
-
-import uvicorn
-
-from .app import create_app
-
-
-def main(argv=None) -> None:
-    parser = argparse.ArgumentParser(description='Serve the risk analytics dashboard')
-    parser.add_argument('--host', default='127.0.0.1', help='Interface to bind to (default: localhost only)')
-    parser.add_argument('--port', type=int, default=8000)
-    args = parser.parse_args(argv)
-    uvicorn.run(create_app(), host=args.host, port=args.port, log_level='info')
-
-
-if __name__ == '__main__':
-    main()
