@@ -47,6 +47,7 @@
         histogram: scenario.shared.histogram,
         qq: scenario.shared.qq,
         worst_drawdown: scenario.shared.worst_drawdown,
+        stress: scenario.shared.stress,
         assumptions: variant.assumptions,
         conventions: scenario.shared.conventions,
         series: {

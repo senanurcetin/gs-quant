@@ -41,6 +41,7 @@ MAX_OBSERVATIONS = 5_000
 HISTOGRAM_BINS = 40
 HISTOGRAM_TAIL = 0.005  # the histogram spans the 0.5th to 99.5th percentile; a few outliers must not squash it
 QQ_MAX_POINTS = 300
+STRESS_HORIZONS = (1, 5, 20)  # periods
 DEFAULT_PERIODS_PER_YEAR = 252
 
 
@@ -198,6 +199,30 @@ def _worst_drawdown(growth: pd.Series) -> dict:
     return {'peak': max(peak - 1, 0), 'trough': max(trough - 1, 0), 'depth': clean(depth[trough], 6)}
 
 
+def stress(returns: pd.Series, assets: Optional[pd.DataFrame] = None) -> list[dict]:
+    """The worst stretch of 1, 5 and 20 periods in the data: its compounded return and dates
+
+    With the returns of the assets behind a portfolio, each window also lists what every asset did over the same dates.
+    """
+    labels = [str(i.date()) if isinstance(i, pd.Timestamp) else str(i) for i in returns.index]
+    cumulative = np.concatenate(([0.0], np.cumsum(np.log1p(returns.to_numpy()))))
+    windows = []
+    for horizon in STRESS_HORIZONS:
+        if horizon * 3 > len(returns):  # a window that is a large part of the data says little
+            continue
+        compounded = np.expm1(cumulative[horizon:] - cumulative[:-horizon])
+        end = int(np.argmin(compounded)) + horizon - 1
+        start = end - horizon + 1
+        window = {'periods': horizon, 'return': clean(compounded.min()), 'start': labels[start], 'end': labels[end]}
+        if assets is not None:
+            window['assets'] = [
+                {'name': name, 'return': clean(np.expm1(np.log1p(assets[name].iloc[start : end + 1]).sum()))}
+                for name in assets.columns
+            ]
+        windows.append(window)
+    return windows
+
+
 def analyze(
     returns: pd.Series,
     confidence: float = 0.95,
@@ -268,6 +293,7 @@ def analyze(
         'histogram': _histogram(returns),
         'qq': _qq(returns),
         'worst_drawdown': _worst_drawdown(growth),
+        'stress': stress(returns),
         'assumptions': assumptions,
         'conventions': 'Results are fractions (0.02 is 2%). Losses are negative.',
     }

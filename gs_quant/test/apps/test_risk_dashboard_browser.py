@@ -78,6 +78,8 @@ def test_portfolio_save_open_report_and_delete(server, browser, tmp_path):
     page.click('#portfolio-sample')
     page.wait_for_selector('#portfolio-section:not([hidden])')
     assert page.locator('#table-assets tbody tr').count() == 4  # three assets and the portfolio
+    assert page.locator('#table-stress tbody tr').count() == 3  # the worst 1, 5 and 20 periods
+    assert page.locator('#table-stress thead th').count() == 7  # window, return, dates and three assets
 
     page.fill('#run-name', 'Browser test')
     page.click('#save-form button')

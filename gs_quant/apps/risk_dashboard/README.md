@@ -24,6 +24,8 @@ or, from a checkout, `python -m gs_quant.apps.risk_dashboard`. It listens on `12
   weights and the portfolio is analysed as above, held at constant weights and rebalanced every period. The page adds
   each asset's *share of volatility* and *share of expected shortfall* (Euler allocations, exact: they add up to 100%),
   the diversification ratio and the correlation matrix.
+- **Stress**: the worst 1, 5 and 20 consecutive periods that actually occurred in the data, with their dates, how many
+  times the VaR the worst period was and, for a portfolio, what each asset did over the same dates.
 - **Saved analyses**: name an analysis and it is kept in a SQLite file. Opening it recomputes it, so it always reflects
   the current model code. Each one can be downloaded as a **report**: one HTML file with its charts and numbers that opens
   without a server, offline.

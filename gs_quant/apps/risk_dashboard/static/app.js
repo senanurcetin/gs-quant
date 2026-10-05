@@ -649,6 +649,45 @@
   }
 
   // ------------------------------------------------------------------------------------------------------------------
+  // Stress: the worst stretches that actually happened
+  // ------------------------------------------------------------------------------------------------------------------
+
+  function renderStress(result) {
+    const windows = result.stress || [];
+    $('#stress-section').hidden = !windows.length;
+    if (!windows.length) return;
+    const conf = confidenceLabel(result.settings.confidence);
+    const worstDay = windows.find((w) => w.periods === 1);
+    const risk = headlineRisk(result);
+    const parts = [];
+    if (worstDay && isNumber(risk.var) && risk.var < 0) {
+      parts.push('The worst single period lost ', { strong: pct(worstDay.return, 2) }, ` on ${worstDay.start}, ${num(worstDay.return / risk.var, 1)} times the ${conf} VaR. `);
+    }
+    const longest = windows[windows.length - 1];
+    parts.push(`The worst ${longest.periods} periods in a row lost `, { strong: pct(longest.return, 1) }, ` (${longest.start} to ${longest.end}).`);
+    setTakeaway('#takeaway-stress', parts);
+
+    const names = windows[0].assets ? windows[0].assets.map((a) => a.name) : [];
+    const table = $('#table-stress');
+    table.replaceChildren();
+    const heads = ['Window', 'Return', 'From', 'To', ...names];
+    table.appendChild(element('thead', {}, [element('tr', {}, heads.map((h) => element('th', { text: h, attributes: { scope: 'col' } })))]));
+    const body = element('tbody');
+    for (const w of windows) {
+      body.appendChild(
+        element('tr', {}, [
+          element('th', { text: w.periods === 1 ? 'Worst period' : `Worst ${w.periods} periods`, attributes: { scope: 'row' } }),
+          element('td', { text: pct(w.return, 2) }),
+          element('td', { text: w.start }),
+          element('td', { text: w.end }),
+          ...(w.assets || []).map((a) => element('td', { text: pct(a.return, 2) })),
+        ]),
+      );
+    }
+    table.appendChild(body);
+  }
+
+  // ------------------------------------------------------------------------------------------------------------------
   // Charts
   // ------------------------------------------------------------------------------------------------------------------
 
@@ -898,6 +937,7 @@
     renderTables(result);
     renderTests(result);
     renderPortfolio(result);
+    renderStress(result);
     renderNotes(result);
     drawGrowth($('#chart-growth'), result);
     drawVar($('#chart-var'), result);

@@ -250,6 +250,64 @@ class TestPortfolio:
 
 
 # ----------------------------------------------------------------------------------------------------------------------
+# Stress windows
+# ----------------------------------------------------------------------------------------------------------------------
+
+
+class TestStress:
+    def test_finds_the_worst_stretch_by_brute_force(self):
+        returns = analysis.simulate_returns('volatile', 300, 4)
+
+        windows = {w['periods']: w for w in analysis.stress(returns)}
+
+        for horizon in analysis.STRESS_HORIZONS:
+            brute = min(
+                np.prod(1 + returns.iloc[i : i + horizon].to_numpy()) - 1 for i in range(len(returns) - horizon + 1)
+            )
+            assert windows[horizon]['return'] == pytest.approx(brute, abs=1e-6)
+            start, end = pd.Timestamp(windows[horizon]['start']), pd.Timestamp(windows[horizon]['end'])
+            assert len(returns.loc[start:end]) == horizon
+            assert np.prod(1 + returns.loc[start:end].to_numpy()) - 1 == pytest.approx(brute, abs=1e-6)
+
+    def test_the_worst_period_is_the_minimum_return(self):
+        returns = analysis.simulate_returns('calm', 200, 1)
+
+        worst = analysis.stress(returns)[0]
+
+        assert worst['periods'] == 1 and worst['return'] == pytest.approx(returns.min(), abs=1e-6)
+        assert worst['start'] == worst['end'] == str(returns.idxmin().date())
+
+    def test_windows_that_are_a_large_part_of_the_data_are_left_out(self):
+        returns = analysis.simulate_returns('calm', 60, 1)
+
+        assert [w['periods'] for w in analysis.stress(returns)] == [1, 5, 20]
+        assert [w['periods'] for w in analysis.stress(returns.iloc[:50])] == [1, 5]
+
+    def test_undated_series_use_positions(self):
+        windows = analysis.stress(pd.Series(np.linspace(-0.02, 0.02, 100)))
+
+        assert windows[0]['start'] == windows[0]['end'] == '0'
+
+    def test_a_portfolio_lists_what_each_asset_did_in_the_window(self, three_assets):
+        assets, dates = three_assets
+
+        result = portfolio.analyze_portfolio(assets, {'Calm': 0.5, 'Volatile': 0.3, 'Shift': 0.2}, dates)
+        window = next(w for w in result['stress'] if w['periods'] == 5)
+
+        assert [a['name'] for a in window['assets']] == ['Calm', 'Volatile', 'Shift']
+        frame = pd.DataFrame(assets, index=pd.to_datetime(dates))
+        span = frame.loc[window['start'] : window['end']]
+        expected = (1 + span).prod() - 1
+        for asset in window['assets']:
+            assert asset['return'] == pytest.approx(expected[asset['name']], abs=1e-6)
+
+    def test_single_series_results_have_no_asset_breakdown(self, client):
+        result = client.post('/api/analyze', json=single_request(400, window=100)).json()
+
+        assert result['stress'] and all('assets' not in w for w in result['stress'])
+
+
+# ----------------------------------------------------------------------------------------------------------------------
 # HTTP: portfolio, saved runs, report
 # ----------------------------------------------------------------------------------------------------------------------
 

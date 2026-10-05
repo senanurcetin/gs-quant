@@ -354,6 +354,7 @@ class TestApi:
             'histogram',
             'qq',
             'worst_drawdown',
+            'stress',
             'assumptions',
             'conventions',
         }

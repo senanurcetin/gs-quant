@@ -143,5 +143,6 @@ def analyze_portfolio(
     result = analysis.analyze(
         portfolio, confidence, method, window, minimum_acceptable_return, periods_per_year, assumptions
     )
+    result['stress'] = analysis.stress(portfolio, frame)
     result['portfolio'] = _decompose(frame, w, portfolio, confidence, result['settings']['periods_per_year'])
     return result
