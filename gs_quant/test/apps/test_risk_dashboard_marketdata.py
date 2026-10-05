@@ -113,7 +113,7 @@ class TestStooq:
 
     def test_upstream_errors_become_502_and_unknown_symbols_422(self):
         with pytest.raises(MarketDataError) as unavailable:
-            stooq_service({}, status=503).prices(['x'])
+            stooq_service({}, status=403).prices(['x'])
         with pytest.raises(MarketDataError) as unknown:
             stooq_service({}, status=404).prices(['x'])
 
@@ -149,6 +149,55 @@ class TestStooq:
 # ----------------------------------------------------------------------------------------------------------------------
 # Yahoo Finance
 # ----------------------------------------------------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def no_pause(monkeypatch):
+    monkeypatch.setattr(marketdata.time, 'sleep', lambda seconds: None)
+
+
+class TestRetries:
+    def service(self, statuses: list, body: str, calls: list) -> MarketData:
+        def handler(request):
+            calls.append(request)
+            status = statuses.pop(0) if statuses else 200
+            return httpx.Response(status, text=body if status == 200 else '')
+
+        return MarketData('yahoo', client_for(handler))
+
+    def test_a_throttled_request_is_repeated_once(self):
+        calls = []
+
+        result = self.service([429], yahoo_json(prices_for(1)), calls).prices(['X'])
+
+        assert len(calls) == 2 and len(result['dates']) == len(DATES)
+
+    @pytest.mark.parametrize('status', [500, 502, 503, 504])
+    def test_so_is_a_briefly_failing_one(self, status):
+        calls = []
+
+        self.service([status], yahoo_json(prices_for(1)), calls).prices(['X'])
+
+        assert len(calls) == 2
+
+    def test_a_second_429_says_to_wait(self):
+        calls = []
+
+        with pytest.raises(MarketDataError, match='limiting requests') as error:
+            self.service([429, 429, 429], '', calls).prices(['X'])
+
+        assert len(calls) == 2 and error.value.status == 502
+
+    def test_a_second_server_error_is_reported_with_its_status(self):
+        with pytest.raises(MarketDataError, match='status 503'):
+            self.service([503, 503], '', []).prices(['X'])
+
+    def test_other_errors_are_not_repeated(self):
+        for status in (400, 401, 403):
+            calls = []
+            with pytest.raises(MarketDataError, match=f'status {status}'):
+                self.service([status], '', calls).prices(['X'])
+            assert len(calls) == 1
 
 
 class TestYahoo:
@@ -308,8 +357,8 @@ def client(tmp_path):
 
 
 class TestApi:
-    def test_is_off_unless_configured(self, tmp_path):
-        client = TestClient(create_app(Settings(database=tmp_path / 'runs.db')))
+    def test_can_be_switched_off(self, tmp_path):
+        client = TestClient(create_app(Settings(database=tmp_path / 'runs.db', market_data=None)))
 
         assert client.get('/api/config').json()['market_data'] is None
         response = client.get('/api/market/prices?symbols=a')
@@ -359,7 +408,9 @@ class TestApi:
 
         response = TestClient(app).get('/api/market/prices?symbols=a')
 
-        assert response.status_code == 502 and response.json() == {'error': 'Stooq answered with status 500'}
+        assert response.status_code == 502 and response.json() == {
+            'error': 'Stooq answered with status 500'
+        }  # after one retry
 
     def test_needs_the_token_like_the_rest(self, tmp_path):
         app = create_app(
@@ -372,7 +423,9 @@ class TestApi:
 class TestSettings:
     def test_reads_and_validates_the_provider(self):
         assert Settings.from_env({'RISK_APP_MARKET_DATA': 'Yahoo'}).market_data == 'yahoo'
-        assert Settings.from_env({}).market_data is None
+        assert Settings.from_env({}).market_data == 'yahoo'  # verified against the live service
+        assert Settings.from_env({'RISK_APP_MARKET_DATA': 'off'}).market_data is None
+        assert Settings.from_env({'RISK_APP_MARKET_DATA': 'NONE'}).market_data is None
         with pytest.raises(ValueError, match='market_data'):
             Settings.from_env({'RISK_APP_MARKET_DATA': 'bloomberg'})
 

@@ -1266,7 +1266,8 @@
     const portfolio = state.mode === 'portfolio';
     $('#symbols-label').textContent = portfolio ? 'Load several symbols' : 'Load by symbol';
     $('#symbols').placeholder = portfolio ? 'THYAO.IS, GARAN.IS, ASELS.IS' : 'THYAO.IS';
-    $('#market-hint').textContent = `Daily closing prices from ${state.marketSource}${portfolio ? `, two to ${state.limits.assets} symbols separated by commas` : ''}. They can be delayed, and are not investment advice.`;
+    const adjusted = state.marketSource === 'Yahoo Finance' ? ', adjusted for splits and dividends' : '';
+    $('#market-hint').textContent = `Daily closing prices from ${state.marketSource}${adjusted}${portfolio ? `, two to ${state.limits.assets} symbols separated by commas` : ''}. They can be delayed, and are not investment advice.`;
   }
 
   async function loadMarket() {

@@ -31,9 +31,11 @@ reason a freshly installed command is "not recognized" on Windows. It listens on
   weights and the portfolio is analysed as above, held at constant weights and rebalanced every period. The page adds
   each asset's *share of volatility* and *share of expected shortfall* (Euler allocations, exact: they add up to 100%),
   the diversification ratio and the correlation matrix.
-- **Market data** (opt in with `RISK_APP_MARKET_DATA`): load one symbol, or two to ten for a portfolio, straight from Stooq or
-  Yahoo Finance. Prices are cached for 15 minutes, aligned on the dates all symbols traded, and analysed like an upload.
-  Provider calls go to a fixed host with a size limit, a timeout and no redirects; symbols are validated first.
+- **Market data**: load one symbol, or two to ten for a portfolio, from Yahoo Finance by symbol (`AAPL`, `^GSPC`,
+  `THYAO.IS` for Borsa Istanbul). Daily closes adjusted for splits and dividends, up to ten years. Prices are cached for
+  15 minutes, aligned on the dates all symbols traded, and analysed like an upload. A throttled request (429) is repeated
+  once. Provider calls go to a fixed host with a size limit, a timeout and no redirects; symbols are validated first.
+  Daily closes only: there are no intraday or real-time prices. Switch it off with `RISK_APP_MARKET_DATA=off`.
 - **Stress**: the worst 1, 5 and 20 consecutive periods that actually occurred in the data, with their dates, how many
   times the VaR the worst period was and, for a portfolio, what each asset did over the same dates.
 - **Saved analyses**: name an analysis and it is kept in a SQLite file. Opening it recomputes it, so it always reflects
@@ -58,7 +60,7 @@ Environment variables; a command line option overrides the matching one.
 | `RISK_APP_API_TOKEN` | none | At least 16 characters. When set, every `/api/` endpoint except the probes needs `Authorization: Bearer <token>`, and the page asks for it |
 | `RISK_APP_MAX_BODY_BYTES` | `1000000` | Largest request body |
 | `RISK_APP_MAX_RUNS` | `200` | Saved analyses kept; the oldest are dropped |
-| `RISK_APP_MARKET_DATA` | off | `stooq` or `yahoo`: lets the page load daily closing prices by symbol (`THYAO.IS`, `spy.us`). The server then needs outbound HTTPS to that provider |
+| `RISK_APP_MARKET_DATA` | `yahoo` | Where the page can load daily prices by symbol (`THYAO.IS`, `AAPL`): `yahoo`, `stooq` or `off`. Needs outbound HTTPS to that provider. Stooq now asks for an API key and does not work at present |
 | `RISK_APP_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR` |
 
 ## Running it for other people
@@ -102,10 +104,12 @@ python -m gs_quant.apps.risk_dashboard check-data --provider yahoo --symbol THYA
 
 fetches one symbol from the real service and prints what came back (number of daily closes, first and last date, last
 close), or why it failed. It exits with status 1 if any provider failed, so it also serves as a deployment check. Run it
-from the machine that will serve the application: a provider can answer from one network and refuse from another
-(Stooq in particular is known to drop connections from some data centres, and Yahoo answers 429 to clients that ask too
-often), so set `RISK_APP_MARKET_DATA` to a provider that passes. Intraday or real-time prices are not covered: both
-sources are used for daily closes.
+from the machine that will serve the application: a provider can answer from one network and refuse from another (a
+cloud server may be treated differently from a home connection, and Yahoo answers 429 to clients that ask too often).
+
+Checked against the live services from a Windows PC: Yahoo Finance returned ten years of daily closes for `AAPL` and
+`THYAO.IS`; Stooq answered that it needs an API key, which this application does not support. Intraday and real-time
+prices are not covered, both sources being used for daily closes.
 
 ## API
 

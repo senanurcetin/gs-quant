@@ -19,6 +19,7 @@ import io
 import json
 import re
 import threading
+import time
 from typing import Optional
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
@@ -35,6 +36,8 @@ SYMBOL = re.compile(r'^[A-Za-z0-9^][A-Za-z0-9.^_=-]{0,19}$')
 MAX_SYMBOLS = 10
 MAX_RESPONSE_BYTES = 5_000_000
 TIMEOUT_SECONDS = 10.0
+RETRY_STATUSES = (429, 500, 502, 503, 504)
+RETRY_DELAY_SECONDS = 1.5
 CACHE_SECONDS = 900
 MIN_PRICES = 61  # sixty returns, the least the analysis accepts
 USER_AGENT = 'Mozilla/5.0 (compatible; gs-quant-risk)'
@@ -49,13 +52,40 @@ class MarketDataError(Exception):
 
 
 def _fetch(client: httpx.Client, provider: str, url: str, params: Optional[dict] = None) -> str:
-    """The body of a GET, refusing redirects and anything larger than MAX_RESPONSE_BYTES"""
+    """The body of a GET, refusing redirects and anything larger than MAX_RESPONSE_BYTES
+
+    A throttled or briefly failing provider (429, 5xx) is asked once more after a short pause.
+    """
+    for attempt in (1, 2):
+        try:
+            return _get_once(client, provider, url, params)
+        except _Retryable as e:
+            if attempt == 2:
+                message = (
+                    f'{provider} is limiting requests: try again in a minute'
+                    if e.status == 429
+                    else f'{provider} answered with status {e.status}'
+                )
+                raise MarketDataError(message, 502) from e
+            time.sleep(RETRY_DELAY_SECONDS)
+    raise AssertionError('unreachable')
+
+
+class _Retryable(Exception):
+    def __init__(self, status: int):
+        super().__init__(status)
+        self.status = status
+
+
+def _get_once(client: httpx.Client, provider: str, url: str, params: Optional[dict]) -> str:
     try:
         with client.stream(
             'GET', url, params=params, headers={'User-Agent': USER_AGENT}, timeout=TIMEOUT_SECONDS
         ) as response:
             if response.status_code == 404:
                 raise MarketDataError(f'{provider} does not know this symbol')
+            if response.status_code in RETRY_STATUSES:
+                raise _Retryable(response.status_code)
             if response.status_code != 200:
                 raise MarketDataError(f'{provider} answered with status {response.status_code}', 502)
             chunks, size = [], 0

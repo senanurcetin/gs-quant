@@ -40,7 +40,7 @@ class Settings:
     max_body_bytes: int = 1_000_000
     max_runs: int = 200  # oldest saved runs are dropped beyond this
     log_level: str = 'INFO'
-    market_data: Optional[str] = None  # 'stooq' or 'yahoo': where prices can be loaded from by symbol; off by default
+    market_data: Optional[str] = 'yahoo'  # where prices can be loaded from by symbol: 'yahoo', 'stooq' or None for off
 
     @classmethod
     def from_env(cls, environ: Optional[Mapping[str, str]] = None) -> 'Settings':
@@ -60,12 +60,18 @@ class Settings:
                 max_body_bytes=int(get('MAX_BODY_BYTES') or defaults.max_body_bytes),
                 max_runs=int(get('MAX_RUNS') or defaults.max_runs),
                 log_level=(get('LOG_LEVEL') or defaults.log_level).upper(),
-                market_data=(get('MARKET_DATA') or '').lower() or None,
+                market_data=cls._market_data(get('MARKET_DATA'), defaults.market_data),
             )
         except ValueError as e:
             raise ValueError(f'Invalid {ENV_PREFIX}* setting: {e}') from e
         settings.validate()
         return settings
+
+    @staticmethod
+    def _market_data(value: Optional[str], default: Optional[str]) -> Optional[str]:
+        if value is None:
+            return default
+        return None if value.lower() in ('off', 'none') else value.lower()
 
     def validate(self) -> None:
         if not 0 < self.port < 65536:
@@ -77,7 +83,7 @@ class Settings:
         if self.log_level not in LOG_LEVELS:
             raise ValueError(f'log_level must be one of {", ".join(LOG_LEVELS)}')
         if self.market_data is not None and self.market_data not in PROVIDERS:
-            raise ValueError(f'market_data must be one of {", ".join(PROVIDERS)}')
+            raise ValueError(f'market_data must be off or one of {", ".join(PROVIDERS)}')
         if self.api_token is not None and len(self.api_token) < 16:
             raise ValueError('api_token must be at least 16 characters')
 
