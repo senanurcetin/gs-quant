@@ -105,7 +105,21 @@
     <section class="panel history" id="history-panel" aria-labelledby="history-title" hidden>
       <h2 id="history-title">Saved analyses</h2>
       <p class="hint" id="history-empty">Nothing saved yet. Run an analysis and give it a name to keep it here.</p>
+      <div class="compare-bar" id="compare-bar" hidden>
+        <button type="button" class="button" id="compare" disabled>Compare selected</button>
+        <span class="hint" id="compare-hint">Tick two to four analyses to compare them side by side.</span>
+      </div>
       <ul id="history" class="runs"></ul>
+    </section>
+
+    <section class="panel" id="compare-panel" aria-labelledby="compare-title" hidden tabindex="-1">
+      <div class="panel-head">
+        <h2 id="compare-title">Saved analyses side by side</h2>
+        <button type="button" class="button" id="compare-close">Close</button>
+      </div>
+      <div class="table-scroll" role="region" aria-label="Comparison" tabindex="0">
+        <table class="assets compare" id="table-compare"></table>
+      </div>
     </section>
 
     <div id="results" class="results" tabindex="-1" hidden>

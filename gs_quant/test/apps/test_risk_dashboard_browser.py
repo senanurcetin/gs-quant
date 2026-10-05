@@ -103,8 +103,25 @@ def test_portfolio_save_open_report_and_delete(server, browser, tmp_path):
     assert saved.is_visible('#portfolio-section') and not saved.is_visible('#controls-panel')
     assert 'Browser test' in saved.inner_text('#provenance')
 
+    # a second analysis, with other weights, to compare against
+    page.fill('#weight-0', '70')
+    page.press('#weight-0', 'Tab')
+    page.wait_for_selector('#results:not(.loading)')
+    page.fill('#run-name', 'Browser test, 70% calm')
+    page.click('#save-form button')
+    page.locator('#history li').nth(1).wait_for()
+    assert page.is_disabled('#compare')
+    page.locator('#history input[data-compare]').nth(0).check()
+    page.locator('#history input[data-compare]').nth(1).check()
+    page.click('#compare')
+    page.wait_for_selector('#compare-panel:not([hidden])')
+    assert page.locator('#table-compare thead th').count() == 2
+    assert page.locator('#table-compare tbody tr').count() >= 15
+    page.click('#compare-close')
+    assert not page.is_visible('#compare-panel')
+
     page.once('dialog', lambda dialog: dialog.accept())
     page.click('#history li button[data-action=delete]')
-    page.locator('#history li').first.wait_for(state='detached')
+    page.locator('#history li').nth(1).wait_for(state='detached')
 
     assert problems == []  # no script error and no Content Security Policy violation, in the app or in the report

@@ -312,3 +312,23 @@ def headline(result: dict) -> dict:
         'volatility': clean(summary['annualized_volatility']),
         'zone': result['backtest']['traffic_light']['zone'],
     }
+
+
+def comparison_metrics(result: dict) -> dict:
+    """The figures that are compared across saved analyses, one flat dict per result"""
+    summary, test = result['summary'], result['backtest']
+    metrics = {
+        **headline(result),
+        'annualized_return': clean(summary['annualized_return']),
+        'max_drawdown': clean(summary['max_drawdown']),
+        'sortino_ratio': clean(summary['sortino_ratio']),
+        'calmar_ratio': clean(summary['calmar_ratio']),
+        'worst_period': clean(summary['worst_period']),
+        'exceedances': test['exceedances'],
+        'expected_exceedances': clean(test['expected_rate'] * test['observations'], 2),
+        'kupiec_p_value': clean(test['p_value'], 4),
+        'diversification_ratio': None,
+    }
+    if 'portfolio' in result:
+        metrics['diversification_ratio'] = result['portfolio']['diversification_ratio']
+    return metrics

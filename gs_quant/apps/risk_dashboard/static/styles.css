@@ -274,3 +274,11 @@ body.report .controls, body.report .history, body.report .save-form { display: n
   .controls, .history, .actions, .skip-link, .site-footer { display: none !important; }
   .panel { box-shadow: none; break-inside: avoid; }
 }
+
+.compare-bar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-top: 8px; }
+.panel-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
+.panel-head h2 { margin: 0; }
+.runs .name { display: flex; gap: 8px; align-items: baseline; cursor: pointer; }
+.runs .name input { margin: 0; accent-color: var(--accent); }
+.compare th[scope='col'] { text-align: right; max-width: 14rem; white-space: normal; overflow-wrap: anywhere; }
+.compare td { white-space: normal; }

@@ -376,6 +376,38 @@ class TestRunsApi:
         assert [r.status_code for r in (bad_series, bad_fields, bad_name, bad_kind)] == [422] * 4
         assert client.get('/api/runs').json() == []
 
+    def test_compares_saved_runs_in_the_order_asked_for(self, client):
+        first = self.save(client, 'Original', request=single_request(400, window=100)).json()
+        second = self.save(client, 'Riskier', request=single_request(400, window=100, confidence=0.99)).json()
+        book = self.save(client, 'Book', 'portfolio', portfolio_request(400, window=100)).json()
+
+        response = client.get(f'/api/runs/compare?ids={book["id"]},{first["id"]},{second["id"]}')
+
+        assert response.status_code == 200
+        runs = response.json()['runs']
+        assert [r['name'] for r in runs] == ['Book', 'Original', 'Riskier']
+        assert runs[0]['kind'] == 'portfolio' and runs[0]['metrics']['diversification_ratio'] > 1
+        assert runs[1]['metrics']['diversification_ratio'] is None
+        assert runs[1]['metrics']['confidence'] == 0.95 and runs[2]['metrics']['confidence'] == 0.99
+        assert runs[2]['metrics']['var'] < runs[1]['metrics']['var']  # a higher confidence level is a larger loss
+        direct = client.post('/api/analyze', json=single_request(400, window=100)).json()
+        assert runs[1]['metrics']['var'] == analysis.headline(direct)['var']
+        assert {'annualized_return', 'max_drawdown', 'exceedances', 'kupiec_p_value', 'zone'} <= set(runs[1]['metrics'])
+
+    def test_comparison_needs_two_to_four_distinct_existing_runs(self, client):
+        ids = [self.save(client, f'run {i}').json()['id'] for i in range(5)]
+
+        def compare(chosen):
+            return client.get('/api/runs/compare', params={'ids': ','.join(chosen)})
+
+        assert compare([]).status_code == 422
+        assert compare(ids[:1]).status_code == 422
+        assert compare(ids[:5]).status_code == 422
+        assert compare([ids[0], ids[0]]).status_code == 422
+        assert compare([ids[0], '0' * 32]).status_code == 404
+        assert compare([ids[0], 'not-an-id']).status_code == 404
+        assert compare(ids[:2]).status_code == 200
+
     def test_unknown_and_malformed_ids_are_404(self, client):
         for run_id in ('0' * 32, 'not-an-id', '..%2f..%2fetc'):
             assert client.get(f'/api/runs/{run_id}').status_code == 404
@@ -454,7 +486,14 @@ class TestOperations:
 
     def test_the_token_protects_every_other_endpoint(self, tmp_path):
         client = TestClient(create_app(make_settings(tmp_path, api_token=TOKEN)))
-        paths = ['/api/config', '/api/scenarios', '/api/sample', '/api/runs', f'/api/runs/{"0" * 32}']
+        paths = [
+            '/api/config',
+            '/api/scenarios',
+            '/api/sample',
+            '/api/runs',
+            '/api/runs/compare',
+            f'/api/runs/{"0" * 32}',
+        ]
 
         for path in paths:
             denied = client.get(path)
