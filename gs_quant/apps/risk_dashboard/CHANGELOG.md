@@ -14,6 +14,8 @@ release are the section of that version below, and are published with it.
   form that the export removes. It now works, and a browser test opens it.
 
 ### Added
+- Horizon method: filtered historical simulation as an alternative to the square-root rule, a multi-period check of the
+  square-root figures over non-overlapping stretches, and a setting for the EWMA decay.
 - Saved copies of prices: if the market data provider cannot be reached, the latest prices fetched are used, and the notes of
   the analysis say so with their date (database version 3).
 - `gs-quant-risk check-portfolio`: a whole analysis on live data, step by step, to run on the machine that serves the

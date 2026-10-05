@@ -346,6 +346,8 @@ class TestApi:
             'minimum_acceptable_return': 0.0,
             'periods_per_year': 252,
             'horizon': 1,
+            'horizon_method': 'square_root',
+            'ewma_decay': 0.94,
         }
         assert set(payload) == {
             'summary',

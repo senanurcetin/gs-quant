@@ -136,7 +136,22 @@
         <div class="field" id="horizon-field">
           <label for="horizon" data-t>Horizon (periods)</label>
           <input id="horizon" name="horizon" type="number" min="1" max="60" step="1" value="1" inputmode="numeric" aria-describedby="horizon-hint">
-          <p class="hint" id="horizon-hint" data-t>1 is a single period. A longer horizon scales the one-period figures by the square root of time, an approximation that assumes independent returns.</p>
+          <p class="hint" id="horizon-hint" data-t>1 is a single period. For a longer horizon, the method below says how the one-period figures are extended.</p>
+        </div>
+
+        <div class="field" id="horizon-method-field">
+          <label for="horizon-method" data-t>Horizon method</label>
+          <select id="horizon-method" name="horizon-method" aria-describedby="horizon-method-hint">
+            <option value="square_root" data-t>Square root of time</option>
+            <option value="filtered_simulation" data-t>Filtered simulation</option>
+          </select>
+          <p class="hint" id="horizon-method-hint"></p>
+        </div>
+
+        <div class="field" id="decay-field">
+          <label for="ewma-decay" data-t>EWMA decay</label>
+          <input id="ewma-decay" name="ewma-decay" type="number" min="0.8" max="0.99" step="0.01" value="0.94" inputmode="decimal" aria-describedby="decay-hint">
+          <p class="hint" id="decay-hint" data-t>How fast the filtered estimate forgets the past: 0.94 is the RiskMetrics value for daily data, a lower value reacts faster.</p>
         </div>
       </form>
     </section>
@@ -242,6 +257,14 @@
         <p class="takeaway" id="takeaway-ewma"></p>
         <div class="table-scroll" role="region" data-t-attr="aria-label" aria-label="Rolling and filtered estimates" tabindex="0">
           <table class="tests" id="table-ewma"></table>
+        </div>
+      </section>
+
+      <section class="panel" id="horizon-section" aria-labelledby="horizon-title" hidden>
+        <h2 id="horizon-title" data-t>Multi-period check</h2>
+        <p class="takeaway" id="takeaway-horizon"></p>
+        <div class="table-scroll" role="region" data-t-attr="aria-label" aria-label="Multi-period check" tabindex="0">
+          <table class="tests" id="table-horizon"></table>
         </div>
       </section>
 

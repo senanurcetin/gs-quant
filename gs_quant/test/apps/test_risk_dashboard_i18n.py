@@ -141,6 +141,7 @@ def test_server_messages_are_matched_by_the_patterns():
         'The benchmark does not vary, so there is nothing to compare against',
         'The benchmark needs the same number of observations as the assets',
         'XU100.IS: Got 300 dates for 250 values',
+        "The 10-period figures come from a filtered historical simulation: 10,000 paths from the current EWMA volatility (decay 0.94), drawing the history's standardised returns, with zero mean",
         'Prices of AAPL, USDTRY=X come from the copy saved on 2026-10-05 because Yahoo Finance could not be reached: they may be out of date',
     ]
     script = (
@@ -155,7 +156,10 @@ def test_server_messages_are_matched_by_the_patterns():
 
     assert all(a != b for a, b in zip(out, messages)), [b for a, b in zip(out, messages) if a == b]
     assert out[1] == 'Eşit ağırlık (her biri %33.3) varsayıldı'
-    assert out[-2] == 'XU100.IS: 250 değer için 300 tarih verildi'
+    assert out[-3] == 'XU100.IS: 250 değer için 300 tarih verildi'
+    assert (
+        out[-2].startswith('10 dönemlik değerler süzülmüş tarihsel simülasyondan gelir') and '0.94 sönümleme' in out[-2]
+    )
     assert (
         out[-1]
         == 'AAPL, USDTRY=X fiyatları, Yahoo Finance erişilemediği için 2026-10-05 tarihinde kaydedilen kopyadan alındı: güncel olmayabilir'

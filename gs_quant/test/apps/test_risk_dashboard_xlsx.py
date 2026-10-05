@@ -106,6 +106,8 @@ class TestWorkbook:
             result['summary']['var_parametric']
         )
         assert summary['Value at risk, 10 periods'] == pytest.approx(result['horizon']['var'])
+        assert summary['Horizon method'] == 'square root'
+        assert summary['10-period value at risk: breaches'] == result['horizon']['backtest']['exceedances']
         assert summary['Annualized volatility'] == pytest.approx(result['summary']['annualized_volatility'])
         cell = next(
             c for row in book['Summary'].iter_rows() for c in row if c.value == summary['Annualized volatility']

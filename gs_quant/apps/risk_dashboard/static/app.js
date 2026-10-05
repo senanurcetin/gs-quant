@@ -85,7 +85,7 @@
 
   // What the server is sent for a dataset and the model settings: the same body is analysed and saved
   function requestBody(dataset, settings) {
-    const body = { confidence: settings.confidence, method: settings.method, window: settings.window, horizon: settings.horizon || 1 };
+    const body = { confidence: settings.confidence, method: settings.method, window: settings.window, horizon: settings.horizon || 1, horizon_method: settings.horizonMethod || 'square_root', ewma_decay: settings.ewmaDecay || 0.94 };
     if (dataset.portfolio) {
       body.assets = dataset.assets;
       body.kind = dataset.kind;
@@ -455,6 +455,8 @@
   // Tables and text
   // ------------------------------------------------------------------------------------------------------------------
 
+  const horizonMethodName = (method) => (method === 'filtered_simulation' ? t('filtered simulation') : t('square root of time'));
+
   function renderHeadline(result) {
     const { summary, settings } = result;
     const conf = confidenceLabel(settings.confidence);
@@ -468,8 +470,8 @@
     if (result.horizon && result.horizon.periods > 1) {
       const h = result.horizon;
       items.push(
-        [t('{conf} value at risk, {n} periods', { conf, n: h.periods }), pct(h.var), t('square root of time')],
-        [t('{conf} expected shortfall, {n} periods', { conf, n: h.periods }), pct(h.expected_shortfall), t('square root of time')],
+        [t('{conf} value at risk, {n} periods', { conf, n: h.periods }), pct(h.var), horizonMethodName(h.method)],
+        [t('{conf} expected shortfall, {n} periods', { conf, n: h.periods }), pct(h.expected_shortfall), horizonMethodName(h.method)],
       );
     }
     const list = $('#headline');
@@ -727,6 +729,22 @@
       [t('{conf} value at risk, rolling window', { conf }), t('one period, {method}', { method: methodName(settings.method) }), pct(risk.var, 2)],
       [t('{conf} value at risk, filtered', { conf }), t('one period, normal, from the filtered volatility'), pct(e.var, 2)],
       [t('Breaches of the filtered value at risk'), t('{n} in {periods} periods, {expected} expected (Kupiec p {p})', { n: e.exceedances, periods: integer(e.observations), expected: num(expected, 1), p: pValue(e.p_value) }), resultCell(e.reject)],
+    ]);
+  }
+
+  function renderHorizonCheck(result) {
+    const check = result.horizon && result.horizon.backtest;
+    $('#horizon-section').hidden = !check;
+    if (!check) return;
+    const expected = check.expected_rate * check.observations;
+    const vars = { n: check.exceedances, periods: integer(check.observations), h: check.periods, expected: num(expected, 1), p: pValue(check.p_value) };
+    let text;
+    if (!check.reject) text = t('The square-root figures were breached **{n} times** in {periods} stretches of {h} periods ({expected} expected): consistent with the confidence level (Kupiec p {p}).', vars);
+    else if (check.exceedances > expected) text = t('The square-root figures were breached **{n} times** in {periods} stretches of {h} periods ({expected} expected): the rule understates the risk over this history (Kupiec p {p}).', vars);
+    else text = t('The square-root figures were breached **{n} times** in {periods} stretches of {h} periods ({expected} expected): the rule overstates the risk over this history (Kupiec p {p}).', vars);
+    setTakeaway('#takeaway-horizon', text);
+    fillMeasures($('#table-horizon'), [
+      [t('Breaches of the {h}-period value at risk', { h: check.periods }), t('{n} in {periods} stretches that do not overlap, {expected} expected (Kupiec p {p})', vars), resultCell(check.reject)],
     ]);
   }
 
@@ -1120,6 +1138,7 @@
     renderStress(result);
     renderBenchmark(result);
     renderEwma(result);
+    renderHorizonCheck(result);
     renderWhatIf(result);
     renderNotes(result);
     drawGrowth($('#chart-growth'), result);
@@ -1286,7 +1305,7 @@
   const confidenceValue = () => (api.confidences ? api.confidences[Number($('#confidence').value)] : Number($('#confidence').value));
 
   function settings() {
-    return { confidence: confidenceValue(), method: $('#method').value, window: Number($('#window').value), horizon: Math.max(1, Math.round(Number($('#horizon').value) || 1)) };
+    return { confidence: confidenceValue(), method: $('#method').value, window: Number($('#window').value), horizon: Math.max(1, Math.round(Number($('#horizon').value) || 1)), horizonMethod: $('#horizon-method').value, ewmaDecay: Math.min(0.99, Math.max(0.8, Number($('#ewma-decay').value) || 0.94)) };
   }
 
   // The rolling window must be shorter than the series: a short history gets a window that fits instead of an error
@@ -1727,6 +1746,9 @@
       $('#method-hint').textContent = methodHint(saved.method);
       $('#window').value = saved.window;
       $('#horizon').value = saved.horizon || 1;
+      $('#horizon-method').value = saved.horizon_method || 'square_root';
+      $('#ewma-decay').value = saved.ewma_decay || 0.94;
+      showHorizonHint();
       renderWeights();
       state.request += 1; // a calculation still in flight must not replace this result
       $('#results').hidden = false;
@@ -1857,6 +1879,13 @@
     $('#scenario-hint').textContent = chosenScenario() ? t(chosenScenario().description) : '';
   };
 
+  function showHorizonHint() {
+    $('#horizon-method-hint').textContent =
+      $('#horizon-method').value === 'filtered_simulation'
+        ? t('Simulates paths from today’s filtered volatility with the history’s own standardised returns: it follows the current market and keeps the fat tails. Also an approximation, with zero mean.')
+        : t('Scales the one-period figures by the square root of time: an approximation that assumes independent returns. It is checked against what happened over stretches that do not overlap.');
+  }
+
   function init() {
     window.I18n.applyDocument();
     document.documentElement.lang = window.I18n.lang;
@@ -1883,7 +1912,7 @@
       $('#window').value = api.window;
       $('#window').closest('.field').hidden = true;
     }
-    if (api.staticMode) $('#horizon-field').hidden = true; // a static export holds results for one horizon
+    if (api.staticMode) for (const id of ['#horizon-field', '#horizon-method-field', '#decay-field']) $(id).hidden = true; // a static export holds results for one setting
     if (!fixed) $('#confidence-out').textContent = confidenceLabel(confidenceValue());
     setMode('single');
 
@@ -1891,6 +1920,7 @@
       $('#method-hint').textContent = methodHint($('#method').value);
     };
     showMethodHint();
+    showHorizonHint();
 
     $('#scenario').addEventListener('change', () => {
       describeScenario();
@@ -1907,6 +1937,11 @@
     });
     $('#window').addEventListener('change', () => scheduleRun(0));
     $('#horizon').addEventListener('change', () => scheduleRun(0));
+    $('#horizon-method').addEventListener('change', () => {
+      showHorizonHint();
+      scheduleRun(0);
+    });
+    $('#ewma-decay').addEventListener('change', () => scheduleRun(0));
     $('#download').addEventListener('click', download);
     $('#print').addEventListener('click', () => window.print());
     document.querySelectorAll('input[name="kind"]').forEach((radio) =>
