@@ -559,9 +559,10 @@ def test_a_benchmark_for_a_single_series_and_in_csv_files(server, browser):
     # a dated file with a third column: the value, then what it is compared with
     single = 'date,value,Index\n' + '\n'.join(f'{d},{a:.6f},{b:.6f}' for d, a, b in zip(dates, other, market))
     page.set_input_files('#file', {'name': 'one.csv', 'mimeType': 'text/csv', 'buffer': single.encode()})
+    page.locator('#takeaway-benchmark').filter(
+        has_text='against Index'
+    ).wait_for()  # not the result of the symbols above
     page.wait_for_selector('#results:not(.loading)')
-    page.locator('#takeaway-benchmark').filter(has_text='Beta').wait_for()
-    assert 'Index' in page.inner_text('#takeaway-benchmark')
     assert float(page.inner_text('#table-benchmark tbody tr').split()[-1]) == pytest.approx(1.2, abs=0.15)
 
     # a portfolio file with a column headed Benchmark: it is not an asset
@@ -571,11 +572,10 @@ def test_a_benchmark_for_a_single_series_and_in_csv_files(server, browser):
     )
     page.set_input_files('#portfolio-file', {'name': 'two.csv', 'mimeType': 'text/csv', 'buffer': portfolio.encode()})
     page.wait_for_selector('#portfolio-section:not([hidden])')
+    page.locator('#takeaway-benchmark').filter(has_text='against Benchmark').wait_for()
     page.wait_for_selector('#results:not(.loading)')
     assert page.locator('#table-assets tbody tr').count() == 3  # two assets and the portfolio
-    assert 'Benchmark' in page.inner_text('#takeaway-benchmark') and 'portfolio' in page.inner_text(
-        '#takeaway-benchmark'
-    )
+    assert 'portfolio' in page.inner_text('#takeaway-benchmark')
 
     page.click('#lang')
     page.locator('#beta-title').filter(has_text='Kayan beta').wait_for()
