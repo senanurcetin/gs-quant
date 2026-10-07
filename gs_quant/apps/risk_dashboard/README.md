@@ -20,8 +20,8 @@ A tagged release can also be installed without cloning, straight from the reposi
 [the published image](#docker) (versions are listed in [`CHANGELOG.md`](CHANGELOG.md)):
 
 ```bash
-pip install "gs-quant[app] @ git+https://github.com/senanurcetin/gs-quant@release-0.1.0"
-docker run -p 8000:8000 -e RISK_APP_API_TOKEN=<16 or more characters> -v risk-data:/data ghcr.io/senanurcetin/gs-quant-risk:0.1.0
+pip install "gs-quant[app] @ git+https://github.com/senanurcetin/gs-quant@release-0.1.1"
+docker run -p 8000:8000 -e RISK_APP_API_TOKEN=<16 or more characters> -v risk-data:/data ghcr.io/senanurcetin/gs-quant-risk:0.1.1
 ```
 
 `python -m gs_quant.apps.risk_dashboard` does the same without needing the `Scripts` folder on the `PATH`, which is the usual
@@ -176,7 +176,7 @@ only, so try them on a test machine first.
 
 ```bash
 docker run -p 8000:8000 -e RISK_APP_API_TOKEN=<16 or more characters> -v risk-data:/data \
-    ghcr.io/senanurcetin/gs-quant-risk:0.1.0           # a published release: 0.1.0, 0.1 or latest
+    ghcr.io/senanurcetin/gs-quant-risk:0.1.1           # a published release: 0.1.1, 0.1 or latest
 docker build -t gs-quant-risk . && docker run ...      # or build it from a checkout
 ```
 
@@ -187,8 +187,8 @@ given the version (`--build-arg VERSION=1.2.3`) and `/api/health` reports it.
 **Releasing** (for the maintainer): add a section `## [X.Y.Z] - date` to `CHANGELOG.md`, merge it, then push the tag
 `release-X.Y.Z`. The workflow `.github/workflows/release.yml` runs the checks of the CI, builds the image with that
 version, starts it once to check what it reports, pushes it to `ghcr.io` as `X.Y.Z`, `X.Y` and `latest`, and creates the
-GitHub release with the notes of that section. It has not been run yet: the first tag is its first test, and the package
-must be made public once in the repository's package settings for others to pull it without logging in.
+GitHub release with the notes of that section. It has published 0.1.0 and 0.1.1 that way; the package is public, so the
+image can be pulled without logging in.
 
 The image runs as an unprivileged user, keeps the saved analyses in the `/data` volume and has a health check on
 `/api/health`. Without a token the container stops and says why.
