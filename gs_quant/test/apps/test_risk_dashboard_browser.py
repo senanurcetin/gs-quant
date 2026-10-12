@@ -425,7 +425,8 @@ def test_horizon_filtered_estimate_and_benchmark(server, browser):
     page.fill('#horizon', '10')
     page.press('#horizon', 'Tab')
     page.locator('#headline > div').nth(5).wait_for()
-    assert '10 periods' in page.inner_text('#headline') and 'square root of time' in page.inner_text('#headline')
+    headline = page.inner_text('#headline').casefold()
+    assert '10 periods' in headline and 'square root of time' in headline
     assert 'square root of the horizon' in page.text_content('#notes')
     # the square-root figures are checked over stretches that do not overlap
     page.wait_for_selector('#horizon-section:not([hidden])')
