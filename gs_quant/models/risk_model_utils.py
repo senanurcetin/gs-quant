@@ -234,19 +234,33 @@ def build_factor_volatility_dataframe(results: list, group_by_name: bool, factor
 def get_closest_date_index(
     date: dt.date, dates: Union[list[str], list[dt.date], tuple[dt.date]], direction: str
 ) -> int:
-    for i in range(50):
-        for index in range(len(dates)):
-            if direction == 'before':
-                next_date = date - dt.timedelta(days=i)
-            else:
-                next_date = date + dt.timedelta(days=i)
-            if isinstance(dates[index], str):
-                date_to_compare = dt.datetime.strptime(dates[index], '%Y-%m-%d').date()
-            else:
-                date_to_compare = dates[index]
-            if next_date == date_to_compare:
-                return index
-    return -1
+    """Return the index of the closest date before or after `date`, inclusively.
+
+    Unlike scanning a fixed 50-day range, this works with sparse risk model
+    calendars as well as daily ones. Return -1 only if no date matches the
+    requested direction.
+    """
+    if direction not in ('before', 'after'):
+        raise ValueError(f"direction must be 'before' or 'after', got {direction!r}")
+
+    best_date = None
+    best_index = -1
+    for index, item in enumerate(dates):
+        candidate = dt.date.fromisoformat(item) if isinstance(item, str) else item
+        if isinstance(candidate, dt.datetime):
+            candidate = candidate.date()
+
+        if direction == 'after':
+            eligible = candidate >= date
+            better = best_date is None or candidate < best_date
+        else:
+            eligible = candidate <= date
+            better = best_date is None or candidate > best_date
+
+        if eligible and better:
+            best_date = candidate
+            best_index = index
+    return best_index
 
 
 def divide_request(data, n):
