@@ -17,7 +17,7 @@ under the License.
 import datetime as dt
 from enum import Enum, auto
 from time import sleep
-from typing import OrderedDict, Union
+from typing import Optional, OrderedDict, Union
 
 import numpy as np
 import pandas as pd
@@ -597,7 +597,7 @@ class PerformanceReport(Report):
         self,
         start_date: dt.date,
         end_date: dt.date,
-        asset_metadata_fields: list[str] = ["id", "name", "ticker"],
+        asset_metadata_fields: Optional[list[str]] = None,
         include_all_business_days: bool = True,
         position_type: PositionType = None,
     ) -> pd.DataFrame:
@@ -613,13 +613,16 @@ class PerformanceReport(Report):
         are the net weights of the positions on the corresponding dates.
 
         """
-        asset_metadata_fields.append("netWeight")
+        # Never mutate the caller's list or reuse a mutable default across calls.
+        fields = ["id", "name", "ticker"] if asset_metadata_fields is None else list(asset_metadata_fields)
+        if "netWeight" not in fields:
+            fields.append("netWeight")
         try:
             return pd.DataFrame(
                 self.get_positions_data(
                     start=start_date,
                     end=end_date,
-                    fields=asset_metadata_fields,
+                    fields=fields,
                     include_all_business_days=include_all_business_days,
                     position_type=position_type,
                 )
