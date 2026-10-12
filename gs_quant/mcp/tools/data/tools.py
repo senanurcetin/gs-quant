@@ -12,6 +12,7 @@ software distributed under the License is distributed on an
 KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
+Portions copyright Senanur Çetin. Licensed under Apache 2.0 license
 """
 
 import datetime as dt
@@ -177,19 +178,24 @@ def get_underliers(
             response = user_session.sync.get(url)
         except Exception as e:
             return {"error": str(e)}
-    if "results" not in response:
+    if not isinstance(response, dict) or "results" not in response:
         return {"error": "Unexpected response format, no results"}
+    results = response["results"]
+    if not isinstance(results, list):
+        return {"error": "Unexpected response format, results must be a list"}
     results_url = f"https://marquee.gs.com/s/products/{asset_id}/constituents"
-    if response["results"]:
-        close_positions = [r for r in response["results"] if r.get("positionType") == "close"] or response["results"]
-        num_results = len(close_positions)
-        if num_results > 20:
-            top_n = sorted(close_positions, key=lambda x: x.get("marketValue", 0), reverse=True)
-            return {
-                "count": num_results,
-                "limitedTo": "First 20 results (by Market Value), please refer to the full list of underliers in Marquee in fullResultsUrl",
-                "fullResultsURL": results_url,
-                "underliers": top_n[:20],
-            }
-        else:
-            return {"count": num_results, "fullResultsURL": results_url, "underliers": close_positions}
+    if not results:
+        return {"count": 0, "fullResultsURL": results_url, "underliers": []}
+
+    close_positions = [r for r in results if r.get("positionType") == "close"] or results
+    num_results = len(close_positions)
+    if num_results > 20:
+        # Market value can be null in otherwise valid API responses.
+        top_n = sorted(close_positions, key=lambda x: x.get("marketValue") or 0, reverse=True)
+        return {
+            "count": num_results,
+            "limitedTo": "First 20 results (by Market Value), please refer to the full list of underliers in Marquee in fullResultsUrl",
+            "fullResultsURL": results_url,
+            "underliers": top_n[:20],
+        }
+    return {"count": num_results, "fullResultsURL": results_url, "underliers": close_positions}
