@@ -312,3 +312,134 @@ body.report .controls, body.report .history, body.report .save-form { display: n
 .whatif .button { padding: 3px 9px; font-size: 0.8rem; }
 #whatif-section .hint { margin-bottom: 8px; }
 #whatif-add { margin-top: 10px; }
+
+
+/* GS Quant portfolio dashboard refresh (2026-10-12)
+   Cosmetic improvements only; risk calculations and charts remain data-driven. */
+:root {
+  --bg: #f3f7f8;
+  --panel: #ffffff;
+  --text: #142c3b;
+  --muted: #536a79;
+  --border: #d4e2e6;
+  --accent: #147e80;
+  --accent-soft: #dcf3ed;
+  --grid: #e3edee;
+  --series: #117c9e;
+  --series-2: #c58b3e;
+  --series-3: #1b9a7f;
+  --bar: #7c9fa9;
+  --hist: #8dbbc2;
+  --shadow: 0 12px 31px rgba(12, 51, 64, .07);
+  --radius: 16px;
+}
+.site-header {
+  background: linear-gradient(110deg,#0c2535 0%,#115062 58%,#156a72 100%);
+  padding: clamp(28px, 4vw, 46px) 0;
+  border-bottom: 1px solid #286b74;
+  box-shadow: 0 16px 36px rgba(6, 32, 48, .11);
+  margin-bottom: clamp(18px, 3vw, 28px);
+}
+.site-header h1 {
+  color: #f4fffb; font-size: clamp(1.75rem, 3.3vw, 2.8rem);
+  font-weight: 800; letter-spacing: -.045em; line-height: 1.15;
+}
+.site-header .lede { color: #cdebe8; max-width: 750px; font-size: 1rem; line-height: 1.65; margin-top: 12px; }
+.site-header .lede code { color: #d9fff1; background: rgba(7, 46, 55, .5); border: 1px solid rgba(171, 244, 217, .22); }
+.site-header .button.lang { color: #e4fff4; background: rgba(8, 43, 56, .5); border-color: rgba(177, 244, 223, .5); }
+.site-header .button.lang:hover { background: #1c6670; }
+.wrap { max-width: 1280px; }
+main { gap: clamp(15px, 2vw, 24px); }
+.panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: clamp(16px, 2vw, 23px);
+  box-shadow: var(--shadow);
+}
+main h2 {
+  font-size: 1.06rem;
+  font-weight: 750;
+  letter-spacing: -.014em;
+  margin-bottom: .75rem;
+}
+.controls {
+  background: linear-gradient(165deg, var(--panel), var(--accent-soft));
+  border-color: var(--border);
+}
+.controls form { gap: 19px; }
+select, input[type='number'], input[type='file'] {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  min-height: 43px;
+  padding: 9px 12px;
+  background: var(--panel);
+}
+.button { border-radius: 10px; min-height: 39px; padding: 9px 15px; font-weight: 700; }
+.button:focus-visible, :focus-visible { outline: 3px solid #50dac3; outline-offset: 3px; }
+.headline { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 15px; margin: 0 0 16px; }
+.headline > div {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, var(--panel) 0%, var(--accent-soft) 250%);
+  border: 1px solid var(--border);
+  border-radius: 17px;
+  padding: 19px 20px;
+  box-shadow: var(--shadow);
+  min-height: 124px;
+}
+.headline > div::before {
+  content: ''; position: absolute; inset: 0 auto 0 0; width: 4px;
+  background: linear-gradient(180deg, #55c9ac, #217e9b);
+}
+.headline dt {
+  text-transform: uppercase; letter-spacing: .07em; font-size: .73rem;
+  font-weight: 800; color: var(--muted);
+}
+.headline dd {
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(1.65rem, 2.45vw, 2.2rem);
+  letter-spacing: -.03em;
+  margin-top: 9px;
+}
+.chart svg { width: 100%; }
+.chart .line { stroke-width: 2.25; }
+.chart .axis text { font-size: 11.3px; }
+.chart .grid line { stroke-dasharray: 3 4; }
+.stats { border-radius: 13px; }
+.stats th,.stats td { padding: 9px 13px; }
+.tag { border-radius: 999px; padding: 4px 10px; }
+@media (max-width: 720px) {
+  .site-header { padding: 23px 0 24px; }
+  .site-header .title-row { align-items: flex-start; }
+  .headline { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+  .headline > div { min-height: 109px; padding: 13px; }
+  .headline dd { font-size: 1.45rem; overflow-wrap: anywhere; }
+  .pair, .tables { grid-template-columns: 1fr; }
+}
+@media (max-width: 420px) {
+ .headline { grid-template-columns: 1fr; }
+}
+@media (prefers-color-scheme: dark) {
+ :root {
+    --bg: #0a1825;
+    --panel: #122737;
+    --text: #e7f5f2;
+    --muted: #acc8cc;
+    --border: #2e525c;
+    --accent: #9debd4;
+    --accent-soft: #193d46;
+    --grid: #26414e;
+    --series: #75bcdf;
+    --series-2: #ecc280;
+    --series-3: #60d0ae;
+    --hist: #517f91;
+    --bar: #678fa1;
+    --shadow: 0 12px 30px rgba(1, 9, 17, .25);
+  }
+  .site-header { background: linear-gradient(110deg,#0b2431,#124751 60%,#0b3547); }
+}
+@media print {
+ .site-header { background: white !important; box-shadow: none; padding: 8pt 0; }
+ .site-header h1, .site-header .lede { color: #142c3b !important; }
+ .panel, .headline > div { box-shadow: none !important; }
+}
