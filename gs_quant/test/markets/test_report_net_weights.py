@@ -19,6 +19,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from gs_quant.errors import MqValueError
 from gs_quant.markets.report import PerformanceReport
 
 
@@ -67,3 +68,25 @@ def test_explicit_empty_fields_list_is_respected(report):
     )
 
     assert report.get_positions_data.call_args.kwargs["fields"] == ["netWeight"]
+
+
+def test_forwards_date_range_and_options(report):
+    result = PerformanceReport.get_position_net_weights(
+        report, START, END, position_type="close", include_all_business_days=False
+    )
+
+    report.get_positions_data.assert_called_once_with(
+        start=START,
+        end=END,
+        fields=["id", "name", "ticker", "netWeight"],
+        include_all_business_days=False,
+        position_type="close",
+    )
+    assert result.to_dict("records") == [{"id": "MA1", "netWeight": 0.5}]
+
+
+def test_existing_error_contract_is_preserved(report):
+    report.get_positions_data.side_effect = RuntimeError("temporary failure")
+
+    with pytest.raises(MqValueError, match="Error retrieving net weight data: temporary failure"):
+        PerformanceReport.get_position_net_weights(report, START, END)
