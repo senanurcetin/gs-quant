@@ -36,8 +36,7 @@ def _last(fn, returns, confidence, method):
 @pytest.fixture
 def sample():
     # Deterministic, non-normal, both winning and losing returns; no external data access.
-    return _returns([-0.075, -0.030, -0.018, -0.01, -0.003,
-                     0.0, 0.004, 0.009, 0.018, 0.029, 0.038, 0.061])
+    return _returns([-0.075, -0.030, -0.018, -0.01, -0.003, 0.0, 0.004, 0.009, 0.018, 0.029, 0.038, 0.061])
 
 
 @pytest.mark.parametrize('method', list(VaRMethod))
@@ -60,17 +59,13 @@ def test_expected_shortfall_translation_equivariance(sample, method, confidence)
 @pytest.mark.parametrize('method', list(VaRMethod))
 def test_var_positive_homogeneity(sample, method):
     baseline = _last(value_at_risk, sample, 0.95, method)
-    assert _last(value_at_risk, sample * 2.5, 0.95, method) == pytest.approx(
-        baseline * 2.5, abs=1e-10
-    )
+    assert _last(value_at_risk, sample * 2.5, 0.95, method) == pytest.approx(baseline * 2.5, abs=1e-10)
 
 
 @pytest.mark.parametrize('method', [VaRMethod.HISTORICAL, VaRMethod.PARAMETRIC])
 def test_es_positive_homogeneity(sample, method):
     baseline = _last(expected_shortfall, sample, 0.95, method)
-    assert _last(expected_shortfall, sample * 2.5, 0.95, method) == pytest.approx(
-        baseline * 2.5, abs=1e-10
-    )
+    assert _last(expected_shortfall, sample * 2.5, 0.95, method) == pytest.approx(baseline * 2.5, abs=1e-10)
 
 
 @pytest.mark.parametrize('method', list(VaRMethod))
@@ -107,12 +102,8 @@ def test_single_extreme_loss_makes_tail_risk_more_negative(sample, method):
     stressed.iloc[0] = -0.25
     # The worst 5% historical tail includes the extreme event; so does the
     # parametric estimate through increased dispersion and a shifted mean.
-    assert _last(value_at_risk, stressed, 0.95, method) < _last(
-        value_at_risk, sample, 0.95, method
-    )
-    assert _last(expected_shortfall, stressed, 0.95, method) < _last(
-        expected_shortfall, sample, 0.95, method
-    )
+    assert _last(value_at_risk, stressed, 0.95, method) < _last(value_at_risk, sample, 0.95, method)
+    assert _last(expected_shortfall, stressed, 0.95, method) < _last(expected_shortfall, sample, 0.95, method)
 
 
 def test_zero_length_inputs_return_empty_series():
