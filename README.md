@@ -1,5 +1,10 @@
 # GS Quant — risk analytics extension (Senanur Cetin fork)
 
+![GS Quant risk analytics dashboard — application screenshot](docs/risk-dashboard-preview.png)
+
+> **Application screenshot**, captured from the publicly deployed risk dashboard. The displayed returns are a simulated example, not investment performance. The dashboard is an independently developed extension to the upstream GS Quant library.
+
+
 This repository is a **fork of Goldman Sachs' open-source GS Quant library**, with an independently developed risk-analysis application and supporting tools. The GS Quant library itself is upstream work by Goldman Sachs; the additions described below belong to this fork. The original library introduction is preserved further down.
 
 ## What this fork adds
