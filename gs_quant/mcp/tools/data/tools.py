@@ -183,6 +183,8 @@ def get_underliers(
     results = response["results"]
     if not isinstance(results, list):
         return {"error": "Unexpected response format, results must be a list"}
+    if not all(isinstance(position, dict) for position in results):
+        return {"error": "Unexpected response format, result entries must be objects"}
     results_url = f"https://marquee.gs.com/s/products/{asset_id}/constituents"
     if not results:
         return {"count": 0, "fullResultsURL": results_url, "underliers": []}
