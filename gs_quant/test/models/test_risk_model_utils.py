@@ -131,11 +131,32 @@ class TestGetClosestDateIndex:
         # Jan 9 (not in list) should find Jan 8 (index 4)
         assert get_closest_date_index(dt.date(2024, 1, 9), dates, 'before') == 4
 
-    # --- No match within 50-day scan window ---
+    # --- Sparse calendars and dates outside the available range ---
+
+    @pytest.mark.parametrize('dates', [['2024-06-01'], [dt.date(2024, 6, 1)]], ids=['str_dates', 'date_dates'])
+    def test_long_gap_after_finds_next_available_date(self, dates):
+        # Risk calendars can have gaps longer than the old fixed 50-day scan.
+        assert get_closest_date_index(dt.date(2024, 1, 1), dates, 'after') == 0
 
     @pytest.mark.parametrize('dates', [['2024-06-01'], [dt.date(2024, 6, 1)]], ids=['str_dates', 'date_dates'])
     def test_no_match_after_returns_negative_one(self, dates):
-        assert get_closest_date_index(dt.date(2024, 1, 1), dates, 'after') == -1
+        assert get_closest_date_index(dt.date(2024, 6, 2), dates, 'after') == -1
+
+    @pytest.mark.parametrize('dates', [['2024-01-01', '2024-06-01'],
+                                       [dt.date(2024, 1, 1), dt.date(2024, 6, 1)]],
+                             ids=['str_dates', 'date_dates'])
+    def test_long_gap_in_both_directions(self, dates):
+        target = dt.date(2024, 3, 1)
+        assert get_closest_date_index(target, dates, 'after') == 1
+        assert get_closest_date_index(target, dates, 'before') == 0
+
+    def test_empty_calendar_returns_negative_one(self):
+        assert get_closest_date_index(dt.date(2024, 1, 1), [], 'before') == -1
+        assert get_closest_date_index(dt.date(2024, 1, 1), [], 'after') == -1
+
+    def test_bad_direction_is_rejected(self):
+        with pytest.raises(ValueError, match='direction'):
+            get_closest_date_index(dt.date(2024, 1, 1), self.DATE_DATES, 'middle')
 
     @pytest.mark.parametrize('dates', [['2024-06-01'], [dt.date(2024, 6, 1)]], ids=['str_dates', 'date_dates'])
     def test_no_match_before_returns_negative_one(self, dates):
