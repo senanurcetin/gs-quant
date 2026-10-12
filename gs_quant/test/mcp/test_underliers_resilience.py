@@ -45,6 +45,17 @@ def test_unexpected_result_types_return_an_error(response):
     assert "Unexpected response format" in result["error"]
 
 
+@pytest.mark.parametrize("position", [None, 42, "not-a-position"])
+def test_malformed_position_record_returns_an_error(position):
+    result = get_underliers(
+        "MA123", user_session=_session({"results": [position]})
+    )
+
+    assert result == {
+        "error": "Unexpected response format, result entries must be objects"
+    }
+
+
 def test_empty_results_key_is_distinct_from_missing_key():
     result = get_underliers("MA123", user_session=_session({}))
 
