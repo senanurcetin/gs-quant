@@ -163,6 +163,76 @@ def test_session_pickle_after_async_use(local_session):
     asyncio.run(call())
 
 
+
+def test_nested_sync_contexts_close_only_after_outer_exit(local_session):
+    session = _LocalSession(local_session.domain)
+    with session:
+        with session:
+            assert session._session is not None
+        assert session._session is not None
+    assert session._session is None
+    assert session._context_depth == 0
+
+
+def test_nested_async_contexts_close_client_only_after_outer_exit(local_session):
+    session = _LocalSession(local_session.domain)
+
+    async def run():
+        async with session:
+            async with session:
+                assert await session.async_.get('/ping') == {'auth': 'Bearer test'}
+                client = session._session_async
+            assert session._session is not None
+            assert session._session_async is client
+            assert not client.is_closed
+        assert session._session is None
+        assert client.is_closed
+        assert session._context_depth == 0
+
+    asyncio.run(run())
+
+
+def test_overlapping_async_contexts_close_after_last_exit(local_session):
+    session = _LocalSession(local_session.domain)
+
+    async def run():
+        first_entered = asyncio.Event()
+        second_entered = asyncio.Event()
+        first_left = asyncio.Event()
+
+        async def first():
+            async with session:
+                first_entered.set()
+                await second_entered.wait()
+                assert await session.async_.get('/ping') == {'auth': 'Bearer test'}
+            first_left.set()
+
+        async def second():
+            await first_entered.wait()
+            async with session:
+                second_entered.set()
+                await first_left.wait()
+                assert session._session is not None
+                assert await session.async_.get('/ping') == {'auth': 'Bearer test'}
+
+        await asyncio.gather(first(), second())
+        assert session._session is None
+        assert session._context_depth == 0
+
+    asyncio.run(run())
+
+
+def test_nested_contexts_do_not_close_preinitialised_session(local_session):
+    async def run():
+        async with local_session:
+            async with local_session:
+                assert await local_session.async_.get('/ping') == {'auth': 'Bearer test'}
+            assert local_session._session is not None
+        assert local_session._session is not None
+        assert local_session._context_depth == 0
+
+    asyncio.run(run())
+
 def test_async_proxy_mounts():
     session = _LocalSession('http://127.0.0.1', proxies={'https': 'http://proxy:8080', 'http://host': 'http://p:1'})
     mounts = session._async_mounts()
