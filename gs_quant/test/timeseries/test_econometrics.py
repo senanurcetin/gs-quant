@@ -50,6 +50,8 @@ from gs_quant.timeseries import (
 from gs_quant.timeseries.econometrics import (
     RiskFreeRateCurrency,
     _get_ratio,
+    _max_drawdown_date_window,
+    _max_drawdown_date_window_reference,
     corr_swap_correlation,
     excess_returns,
     excess_returns_,
@@ -718,6 +720,73 @@ def test_max_drawdown():
     result = max_drawdown(series, Window('2d', 0))
     expected = pd.Series([0.0, 0.0, 0.0, -0.2, 0.0, -0.75], index=daily_dates)
     assert_series_equal(result, expected, obj="Max drawdown window 2d")
+
+
+
+@pytest.mark.parametrize("seed", range(4))
+@pytest.mark.parametrize("offset", [
+    pd.DateOffset(days=5), pd.DateOffset(weeks=2),
+    pd.DateOffset(months=1), pd.DateOffset(months=3),
+    pd.DateOffset(years=1), pd.DateOffset(years=40),
+])
+def test_max_drawdown_date_window_matches_historical_result(seed, offset):
+    rng = np.random.default_rng(seed)
+    prices = pd.Series(
+        100 * np.cumprod(1 + rng.normal(0, 0.02, 260)),
+        index=pd.bdate_range("2018-01-01", periods=260),
+    )
+    actual = _max_drawdown_date_window(prices, offset)
+    expected = _max_drawdown_date_window_reference(prices, offset)
+    assert_series_equal(actual, expected)
+
+
+@pytest.mark.parametrize("offset", [
+    pd.DateOffset(months=1), pd.DateOffset(years=2), pd.DateOffset(years=20),
+])
+def test_max_drawdown_date_window_handles_missing_and_infinite_values(offset):
+    rng = np.random.default_rng(3)
+    values = rng.normal(100, 40, 210)
+    values[::7] = np.nan
+    values[::11] = 0.0
+    values[::13] = np.inf
+    values[::17] = -np.inf
+    values[:8] = np.nan
+    prices = pd.Series(values, index=pd.bdate_range("2017-01-01", periods=len(values)))
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        actual = _max_drawdown_date_window(prices, offset)
+        expected = _max_drawdown_date_window_reference(prices, offset)
+    np.testing.assert_allclose(actual.to_numpy(), expected.to_numpy(), rtol=1e-12, equal_nan=True)
+    pd.testing.assert_index_equal(actual.index, expected.index)
+
+
+@pytest.mark.parametrize("offset", [pd.DateOffset(days=0), pd.DateOffset(days=-1)])
+def test_max_drawdown_date_window_preserves_empty_window_behavior(offset):
+    prices = pd.Series([100., 90., np.nan, 120.],
+                       index=pd.bdate_range("2024-01-01", periods=4))
+    actual = _max_drawdown_date_window(prices, offset)
+    expected = _max_drawdown_date_window_reference(prices, offset)
+    np.testing.assert_allclose(actual.to_numpy(), expected.to_numpy(), equal_nan=True)
+
+
+def test_max_drawdown_date_window_unsorted_index_fallback():
+    rng = np.random.default_rng(4)
+    prices = pd.Series(
+        rng.uniform(50, 150, size=35),
+        index=pd.bdate_range("2024-01-01", periods=35),
+    )
+    unsorted = prices.iloc[rng.permutation(len(prices))]
+    offset = pd.DateOffset(months=1)
+    actual = _max_drawdown_date_window(unsorted, offset)
+    expected = _max_drawdown_date_window_reference(unsorted, offset)
+    assert_series_equal(actual, expected)
+
+
+def test_max_drawdown_date_window_empty_series():
+    prices = pd.Series(dtype=float, index=pd.DatetimeIndex([]))
+    result = _max_drawdown_date_window(prices, pd.DateOffset(months=3))
+    assert result.empty
+    pd.testing.assert_index_equal(result.index, prices.index)
 
 
 def test_excess_returns():
