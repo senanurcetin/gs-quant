@@ -1069,29 +1069,25 @@ def _max_drawdown_date_window_reference(x: pd.Series, offset: pd.DateOffset) -> 
 
 
 def _max_drawdown_date_window(x: pd.Series, offset: pd.DateOffset) -> pd.Series:
-    """Compute date-window drawdowns in linear time on monotonic unique indexes.
+    """Compute date-window drawdowns using linear-time rolling extrema.
 
-    The window for each date is (date - offset, date]. A moving left
-    boundary and two monotonic deques avoid rescanning overlapping windows.
+    The window for each date is (date - offset, date]. Vectorized boundary
+    searches and two monotonic deques avoid rescanning overlapping windows.
     Fall back to the historical implementation if the window boundaries
     move backwards or if a window excludes its own observation.
     """
     if not (x.index.is_monotonic_increasing and x.index.is_unique):
         return _max_drawdown_date_window_reference(x, offset)
 
-    dates = x.index
     n = len(x)
-    starts = np.empty(n, dtype=np.intp)
-    left = 0
-    previous_boundary = None
-    for i, date in enumerate(dates):
-        boundary = date - offset
-        if boundary >= date or (previous_boundary is not None and boundary < previous_boundary):
-            return _max_drawdown_date_window_reference(x, offset)
-        previous_boundary = boundary
-        while left < i and dates[left] <= boundary:
-            left += 1
-        starts[i] = left
+    # Compute window starts in vectorized code. The deque passes below are
+    # linear; binary searches for boundaries cost O(n log n) overall, but
+    # avoid much slower per-row pandas Timestamp arithmetic in Python.
+    starts = x.index.searchsorted(x.index - offset, side='right')
+    if np.any(starts > np.arange(n)) or np.any(starts[1:] < starts[:-1]):
+        # Empty windows (e.g. zero/negative offsets) and non-monotone
+        # boundaries must retain the original pandas behavior.
+        return _max_drawdown_date_window_reference(x, offset)
 
     values = x.to_numpy(dtype=float)
     scores = np.empty(n)
