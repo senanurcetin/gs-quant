@@ -15,6 +15,7 @@ under the License.
 """
 
 import datetime as dt
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -22,6 +23,7 @@ from gs_quant.api.gs.data import GsDataApi
 from gs_quant.api.gs.portfolios import Portfolio
 from gs_quant.api.gs.thematics import GsThematicApi
 from gs_quant.common import ReportParameters
+from gs_quant.errors import MqValueError
 from gs_quant.markets.report import FactorRiskReport, PerformanceReport, ThematicReport, flatten_results_into_df
 from gs_quant.session import Environment, GsSession
 from gs_quant.target.portfolios import RiskAumSource
@@ -576,3 +578,66 @@ def test_get_thematic_breakdown(mocker):
 
 if __name__ == '__main__':
     pytest.main(args=[__file__])
+
+
+@pytest.fixture
+def mocked_net_weight_report():
+    report = MagicMock()
+    report.get_positions_data.return_value = [{"id": "MA1", "netWeight": 0.5}]
+    return report
+
+
+def test_net_weight_fields_are_not_mutated(mocked_net_weight_report):
+    fields = ["gsid"]
+    start, end = dt.date(2024, 1, 2), dt.date(2024, 1, 5)
+    result = PerformanceReport.get_position_net_weights(
+        mocked_net_weight_report, start, end, asset_metadata_fields=fields
+    )
+    assert fields == ["gsid"]
+    assert mocked_net_weight_report.get_positions_data.call_args.kwargs["fields"] == ["gsid", "netWeight"]
+    assert result.to_dict("records") == [{"id": "MA1", "netWeight": 0.5}]
+
+
+def test_net_weight_default_fields_do_not_accumulate(mocked_net_weight_report):
+    start, end = dt.date(2024, 1, 2), dt.date(2024, 1, 5)
+    for _ in range(3):
+        PerformanceReport.get_position_net_weights(mocked_net_weight_report, start, end)
+
+    fields = [call.kwargs["fields"] for call in mocked_net_weight_report.get_positions_data.call_args_list]
+    assert fields == [["id", "name", "ticker", "netWeight"]] * 3
+
+
+@pytest.mark.parametrize(
+    "provided, expected",
+    [
+        (["id", "netWeight"], ["id", "netWeight"]),
+        ([], ["netWeight"]),
+        (["id", "ticker"], ["id", "ticker", "netWeight"]),
+    ],
+)
+def test_net_weight_field_selection(mocked_net_weight_report, provided, expected):
+    PerformanceReport.get_position_net_weights(
+        mocked_net_weight_report,
+        dt.date(2024, 1, 2),
+        dt.date(2024, 1, 5),
+        asset_metadata_fields=provided,
+        position_type="close",
+        include_all_business_days=False,
+    )
+    mocked_net_weight_report.get_positions_data.assert_called_once_with(
+        start=dt.date(2024, 1, 2),
+        end=dt.date(2024, 1, 5),
+        fields=expected,
+        include_all_business_days=False,
+        position_type="close",
+    )
+    assert provided == (["id", "netWeight"] if "netWeight" in provided else
+                        ["id", "ticker"] if "ticker" in provided else [])
+
+
+def test_net_weight_retrieval_errors_are_wrapped(mocked_net_weight_report):
+    mocked_net_weight_report.get_positions_data.side_effect = RuntimeError("service failure")
+    with pytest.raises(MqValueError, match="Error retrieving net weight data: service failure"):
+        PerformanceReport.get_position_net_weights(
+            mocked_net_weight_report, dt.date(2024, 1, 2), dt.date(2024, 1, 5)
+        )
