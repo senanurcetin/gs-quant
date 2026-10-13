@@ -616,6 +616,7 @@ def test_net_weight_default_fields_do_not_accumulate(mocked_net_weight_report):
     ],
 )
 def test_net_weight_field_selection(mocked_net_weight_report, provided, expected):
+    original_fields = list(provided)
     PerformanceReport.get_position_net_weights(
         mocked_net_weight_report,
         dt.date(2024, 1, 2),
@@ -631,8 +632,7 @@ def test_net_weight_field_selection(mocked_net_weight_report, provided, expected
         include_all_business_days=False,
         position_type="close",
     )
-    assert provided == (["id", "netWeight"] if "netWeight" in provided else
-                        ["id", "ticker"] if "ticker" in provided else [])
+    assert provided == original_fields
 
 
 def test_net_weight_retrieval_errors_are_wrapped(mocked_net_weight_report):
