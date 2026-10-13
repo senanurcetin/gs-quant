@@ -233,6 +233,40 @@ def test_nested_contexts_do_not_close_preinitialised_session(local_session):
 
     asyncio.run(run())
 
+
+def test_failed_async_context_entry_restores_cleanup_ownership(local_session, monkeypatch):
+    session = _LocalSession(local_session.domain)
+
+    def fail():
+        raise RuntimeError('invalid proxy configuration')
+
+    monkeypatch.setattr(session, '_init_async', fail)
+    with pytest.raises(RuntimeError, match='invalid proxy configuration'):
+        asyncio.run(session._on_aenter())
+
+    assert session._context_depth == 0
+    assert session._session is None
+    assert not session._close_on_outer_exit
+
+
+def test_failed_nested_context_entry_preserves_outer_owner(local_session, monkeypatch):
+    session = _LocalSession(local_session.domain)
+
+    async def run():
+        async with session:
+            def fail():
+                raise RuntimeError('could not create async client')
+
+            monkeypatch.setattr(session, '_init_async', fail)
+            with pytest.raises(RuntimeError, match='could not create async client'):
+                await session._on_aenter()
+            assert session._context_depth == 1
+            assert session._session is not None
+
+    asyncio.run(run())
+    assert session._context_depth == 0
+    assert session._session is None
+
 def test_async_proxy_mounts():
     session = _LocalSession('http://127.0.0.1', proxies={'https': 'http://proxy:8080', 'http://host': 'http://p:1'})
     mounts = session._async_mounts()
