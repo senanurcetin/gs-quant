@@ -337,6 +337,8 @@ class GsSession(ContextBase):
         self._session = None
         self._async_clients: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
         self._async_close_tasks = set()
+        self._context_depth = 0
+        self._close_on_outer_exit = False
         self._sync_api: Optional['_SyncSessionAPI'] = None
         self._async_api: Optional['_AsyncSessionAPI'] = None
         self.domain = domain
@@ -410,13 +412,28 @@ class GsSession(ContextBase):
         self._authenticate()
         self._authenticate_async()
 
+    def _begin_session_context(self):
+        # A nested context must not overwrite the ownership of the outer one.
+        # Also retain the session while other tasks use it in parallel.
+        if self._context_depth == 0:
+            self._close_on_outer_exit = self._session is None
+        self._context_depth += 1
+
+    def _end_session_context(self) -> bool:
+        self._context_depth -= 1
+        if self._context_depth == 0:
+            should_close = self._close_on_outer_exit
+            self._close_on_outer_exit = False
+            return should_close
+        return False
+
     def _on_enter(self):
-        self.__close_on_exit = self._session is None
-        if not self._session:
+        self._begin_session_context()
+        if self._session is None:
             self.init()
 
     def _on_exit(self, exc_type, exc_val, exc_tb):
-        if self.__close_on_exit:
+        if self._end_session_context():
             self._close_async_clients()
             self._session = None
 
@@ -462,13 +479,13 @@ class GsSession(ContextBase):
             self._async_clients.pop(loop, None)
 
     async def _on_aenter(self):
-        self.__close_on_exit = self._session is None
-        if self.__close_on_exit:
+        self._begin_session_context()
+        if self._session is None:
             self.init()
         self._init_async()
 
     async def _on_aexit(self, exc_type, exc_val, exc_tb):
-        if self.__close_on_exit:
+        if self._end_session_context():
             await self._close_async()
             self._close_async_clients()
             self._session = None
