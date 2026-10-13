@@ -429,8 +429,14 @@ class GsSession(ContextBase):
 
     def _on_enter(self):
         self._begin_session_context()
-        if self._session is None:
-            self.init()
+        try:
+            if self._session is None:
+                self.init()
+        except BaseException:
+            if self._end_session_context():
+                self._close_async_clients()
+                self._session = None
+            raise
 
     def _on_exit(self, exc_type, exc_val, exc_tb):
         if self._end_session_context():
@@ -480,9 +486,15 @@ class GsSession(ContextBase):
 
     async def _on_aenter(self):
         self._begin_session_context()
-        if self._session is None:
-            self.init()
-        self._init_async()
+        try:
+            if self._session is None:
+                self.init()
+            self._init_async()
+        except BaseException:
+            if self._end_session_context():
+                self._close_async_clients()
+                self._session = None
+            raise
 
     async def _on_aexit(self, exc_type, exc_val, exc_tb):
         if self._end_session_context():
