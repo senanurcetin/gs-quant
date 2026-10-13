@@ -15,6 +15,7 @@
 # should be fully documented: docstrings should describe parameters and the return value, and provide a 1-line
 # description. Type annotations should be provided for parameters.
 import math
+from collections import deque
 from enum import Enum, IntEnum
 from typing import Optional, Union
 
@@ -1055,6 +1056,75 @@ def beta(x: pd.Series, b: pd.Series, w: Union[Window, int, str] = Window(None, 0
     return apply_ramp(interpolate(result, x, Interpolate.NAN), w)
 
 
+def _max_drawdown_date_window_reference(x: pd.Series, offset: pd.DateOffset) -> pd.Series:
+    """Original relative-date drawdown calculation, used for irregular indexes."""
+    scores = pd.Series(
+        [x[idx] / x.loc[(x.index > (idx - offset)) & (x.index <= idx)].max() - 1 for idx in x.index],
+        index=x.index,
+    )
+    return pd.Series(
+        [scores.loc[(scores.index > (idx - offset)) & (scores.index <= idx)].min() for idx in scores.index],
+        index=scores.index,
+    )
+
+
+def _max_drawdown_date_window(x: pd.Series, offset: pd.DateOffset) -> pd.Series:
+    """Compute date-window drawdowns in linear time on monotonic unique indexes.
+
+    The window for each date is (date - offset, date]. A moving left
+    boundary and two monotonic deques avoid rescanning overlapping windows.
+    Fall back to the historical implementation if the window boundaries
+    move backwards or if a window excludes its own observation.
+    """
+    if not (x.index.is_monotonic_increasing and x.index.is_unique):
+        return _max_drawdown_date_window_reference(x, offset)
+
+    dates = x.index
+    n = len(x)
+    starts = np.empty(n, dtype=np.intp)
+    left = 0
+    previous_boundary = None
+    for i, date in enumerate(dates):
+        boundary = date - offset
+        if boundary >= date or (previous_boundary is not None and boundary < previous_boundary):
+            return _max_drawdown_date_window_reference(x, offset)
+        previous_boundary = boundary
+        while left < i and dates[left] <= boundary:
+            left += 1
+        starts[i] = left
+
+    values = x.to_numpy(dtype=float)
+    scores = np.empty(n)
+    result = np.empty(n)
+    max_indices = deque()
+    min_indices = deque()
+
+    # Ignore missing values in extrema, matching pandas max/min behavior.
+    with np.errstate(divide='ignore', invalid='ignore'):
+        for i, value in enumerate(values):
+            start = starts[i]
+            while max_indices and max_indices[0] < start:
+                max_indices.popleft()
+            if not np.isnan(value):
+                while max_indices and values[max_indices[-1]] <= value:
+                    max_indices.pop()
+                max_indices.append(i)
+
+            peak = values[max_indices[0]] if max_indices else np.nan
+            score = value / peak - 1
+            scores[i] = score
+
+            while min_indices and min_indices[0] < start:
+                min_indices.popleft()
+            if not np.isnan(score):
+                while min_indices and scores[min_indices[-1]] >= score:
+                    min_indices.pop()
+                min_indices.append(i)
+            result[i] = scores[min_indices[0]] if min_indices else np.nan
+
+    return pd.Series(result, index=x.index)
+
+
 @plot_function
 def max_drawdown(x: pd.Series, w: Union[Window, int, str] = Window(None, 0)) -> pd.Series:
     """
@@ -1083,13 +1153,7 @@ def max_drawdown(x: pd.Series, w: Union[Window, int, str] = Window(None, 0)) -> 
     w = normalize_window(x, w)
     if isinstance(w.w, pd.DateOffset):
         if pd.api.types.is_datetime64_dtype(x.index):
-            scores = pd.Series(
-                [x[idx] / x.loc[(x.index > (idx - w.w)) & (x.index <= idx)].max() - 1 for idx in x.index], index=x.index
-            )
-            result = pd.Series(
-                [scores.loc[(scores.index > (idx - w.w)) & (scores.index <= idx)].min() for idx in scores.index],
-                index=scores.index,
-            )
+            result = _max_drawdown_date_window(x, w.w)
         else:
             raise TypeError('Please pass in list of dates as index')
     else:
