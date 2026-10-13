@@ -184,7 +184,7 @@ def get_underliers(
         close_positions = [r for r in response["results"] if r.get("positionType") == "close"] or response["results"]
         num_results = len(close_positions)
         if num_results > 20:
-            top_n = sorted(close_positions, key=lambda x: x.get("marketValue", 0), reverse=True)
+            top_n = sorted(close_positions, key=lambda x: x.get("marketValue") or 0, reverse=True)
             return {
                 "count": num_results,
                 "limitedTo": "First 20 results (by Market Value), please refer to the full list of underliers in Marquee in fullResultsUrl",
@@ -193,3 +193,5 @@ def get_underliers(
             }
         else:
             return {"count": num_results, "fullResultsURL": results_url, "underliers": close_positions}
+    # Always return a JSON-serializable payload, including when there are no positions.
+    return {"count": 0, "fullResultsURL": results_url, "underliers": []}
