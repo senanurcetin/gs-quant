@@ -119,6 +119,34 @@ def test_hand_calculated_example():
     assert result.round(6).tolist() == [0.0, 0.0, -0.25, -0.25]
 
 
+@pytest.mark.parametrize('offset', [
+    pd.DateOffset(months=3),
+    pd.DateOffset(years=2),
+    pd.DateOffset(years=10),
+])
+def test_monotonic_window_matches_reference_with_nan_and_infinities(offset):
+    """Deque extrema must reproduce pandas' NaN handling and signed infinities."""
+    rng = np.random.default_rng(3)
+    values = rng.normal(100, 40, 420)
+    values[::7] = np.nan
+    values[::11] = 0.0
+    values[::13] = np.inf
+    values[::17] = -np.inf
+    values[:9] = np.nan
+    prices = pd.Series(values, index=pd.bdate_range('2008-01-01', periods=len(values)))
+
+    with np.errstate(divide='ignore', invalid='ignore'):
+        reference = _max_drawdown_date_window_reference(prices, offset)
+        actual = _max_drawdown_date_window(prices, offset)
+    _assert_same(actual, reference)
+
+
+def test_empty_relative_date_window():
+    prices = pd.Series([], index=pd.DatetimeIndex([]), dtype=float)
+    offset = pd.DateOffset(months=3)
+    _assert_same(_max_drawdown_date_window(prices, offset), _max_drawdown_date_window_reference(prices, offset))
+
+
 def test_is_linear_not_quadratic_in_the_number_of_dates():
     # the reference took about 1.7s for 4,000 dates; the fast path must stay far below what O(n^2) would need
     prices = _prices(20000, seed=2, start='1990-01-01')
