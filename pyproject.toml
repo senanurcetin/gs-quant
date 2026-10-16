@@ -33,7 +33,7 @@ dependencies = [
     "more_itertools",
     "msgpack",
     "nest-asyncio",
-    "numpy>1.17.0",
+    "numpy>1.17.0,<2.4.0",
     "opentelemetry-api",
     "opentelemetry-sdk",
     "pandas>=1.4",
@@ -43,6 +43,7 @@ dependencies = [
     "httpx>=0.28.1",
     "scipy>=1.2.0",
     "statsmodels>=0.14.5",
+    "tzdata",
     "pyyaml",
     "tqdm",
     "websockets"

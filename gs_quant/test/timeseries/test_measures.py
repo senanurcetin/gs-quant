@@ -12,6 +12,7 @@ software distributed under the License is distributed on an
 KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
+Portions copyright Senanur Çetin. Licensed under Apache 2.0 license
 """
 
 import datetime as dt
@@ -4957,10 +4958,25 @@ def test_implied_volatility_ng():
     replace.restore()
 
 
-def test_get_iso_data():
-    tz_map = {'MISO': 'US/Central', 'CAISO': 'US/Pacific'}
-    for key in tz_map:
-        assert tm._get_iso_data(key)[0] == tz_map[key]
+@pytest.mark.parametrize(
+    "region, zone, start, end, weekends",
+    [
+        ("MISO", "America/Chicago", 6, 22, [5, 6]),
+        ("ERCOT", "America/Chicago", 6, 22, [5, 6]),
+        ("SPP", "America/Chicago", 6, 22, [5, 6]),
+        ("CAISO", "America/Los_Angeles", 6, 22, [6]),
+        ("PJM", "America/New_York", 7, 23, [5, 6]),
+    ],
+)
+def test_get_iso_data(region, zone, start, end, weekends):
+    from zoneinfo import ZoneInfo
+
+    assert tm._get_iso_data(region) == (zone, start, end, weekends)
+    market_tz = ZoneInfo(zone)
+    assert market_tz.key == zone
+    winter = dt.datetime(2026, 1, 15, 12, tzinfo=market_tz)
+    summer = dt.datetime(2026, 7, 15, 12, tzinfo=market_tz)
+    assert winter.utcoffset() != summer.utcoffset()
 
 
 def test_weights_for_region_and_bucket_aggregated():
