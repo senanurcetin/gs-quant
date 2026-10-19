@@ -1,0 +1,26 @@
+name: Validate latest GS Quant underliers 406
+on:
+  push:
+    branches:
+      - verify/gs-quant-406-20261019
+permissions:
+  contents: read
+jobs:
+  focused-and-mcp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install package and test dependencies
+        run: python -m pip install -e ".[test,mcp]" ruff
+      - name: Validate all underlier regressions
+        run: python -m pytest -q gs_quant/test/test_mcp_underliers.py
+      - name: Validate MCP suite
+        run: python -m pytest -q gs_quant/test/mcp
+      - name: Lint changed files
+        run: python -m ruff check gs_quant/mcp/tools/data/tools.py gs_quant/test/test_mcp_underliers.py
