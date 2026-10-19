@@ -143,8 +143,9 @@ def test_monotonic_window_matches_reference_with_nan_and_infinities(offset):
 
 def test_empty_relative_date_window():
     prices = pd.Series([], index=pd.DatetimeIndex([]), dtype=float)
-    offset = pd.DateOffset(months=3)
-    _assert_same(_max_drawdown_date_window(prices, offset), _max_drawdown_date_window_reference(prices, offset))
+    result = _max_drawdown_date_window(prices, pd.DateOffset(months=3))
+    assert result.empty
+    pd.testing.assert_index_equal(result.index, prices.index)
 
 
 def test_is_linear_not_quadratic_in_the_number_of_dates():
