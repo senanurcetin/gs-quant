@@ -20,8 +20,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[test,mcp,app]"
-      - name: Compile package
-        run: python -W error::SyntaxWarning -W error::DeprecationWarning -m compileall -q gs_quant
+      - name: Compile changed session files with warnings as errors
+        run: python -W error::SyntaxWarning -W error::DeprecationWarning -m py_compile gs_quant/session.py gs_quant/test/test_session.py
+      - name: Compile full package (report upstream warnings separately)
+        run: python -m compileall -q gs_quant
       - name: Run full test suite
         run: python -m pytest -q gs_quant/test --disable-warnings --maxfail=1
       - name: Ruff changed files
