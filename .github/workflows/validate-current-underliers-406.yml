@@ -20,7 +20,7 @@ jobs:
         run: python -m pip install -e ".[test,mcp]" ruff
       - name: Validate all underlier regressions
         run: python -m pytest -q gs_quant/test/test_mcp_underliers.py
-      - name: Validate MCP suite
-        run: python -m pytest -q gs_quant/test/mcp
+      # The upstream PR base does not contain gs_quant/test/mcp (it is in umbrella PR #400).
+      # This isolated PR only adds the focused regression file above.
       - name: Lint changed files
         run: python -m ruff check gs_quant/mcp/tools/data/tools.py gs_quant/test/test_mcp_underliers.py
