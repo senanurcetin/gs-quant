@@ -22,5 +22,7 @@ jobs:
         run: python -m pytest -q gs_quant/test/test_mcp_underliers.py
       # The upstream PR base does not contain gs_quant/test/mcp (it is in umbrella PR #400).
       # This isolated PR only adds the focused regression file above.
+      - name: Validate entire GS Quant test suite
+        run: python -m pytest -q gs_quant/test --disable-warnings --maxfail=1
       - name: Lint changed files
         run: python -m ruff check gs_quant/mcp/tools/data/tools.py gs_quant/test/test_mcp_underliers.py
