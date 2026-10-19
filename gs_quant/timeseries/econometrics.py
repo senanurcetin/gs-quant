@@ -16,6 +16,7 @@
 # should be fully documented: docstrings should describe parameters and the return value, and provide a 1-line
 # description. Type annotations should be provided for parameters.
 import math
+from collections import deque
 from enum import Enum, IntEnum
 from typing import Optional, Union
 
@@ -1069,24 +1070,52 @@ def _max_drawdown_date_window_reference(x: pd.Series, offset: pd.DateOffset) -> 
 
 
 def _max_drawdown_date_window(x: pd.Series, offset: pd.DateOffset) -> pd.Series:
-    """Rolling maximum drawdown over a relative date window, giving the same result as the reference implementation.
+    """Rolling maximum drawdown in linear time for sorted, unique dates.
 
-    The first date of every window is found once, by binary search, instead of by scanning the series for each date.
-    That needs a sorted, unique index; for anything else the reference implementation is used."""
+    The date windows are (date - offset, date]. Monotonic deques track the
+    greatest observed price and then the smallest drawdown score in each
+    window. Each observation is inserted and removed at most once.
+    For indexes that are not sorted/unique, or windows whose starts move
+    backwards, use the reference implementation.
+    """
     if not (x.index.is_monotonic_increasing and x.index.is_unique):
         return _max_drawdown_date_window_reference(x, offset)
+
     values = x.to_numpy(dtype=float)
     n = len(values)
-    # windows are (date - offset, date]; the date itself is always in its window
     starts = np.minimum(x.index.searchsorted(x.index - offset, side='right'), np.arange(n))
+    if n > 1 and np.any(starts[1:] < starts[:-1]):
+        return _max_drawdown_date_window_reference(x, offset)
+
     scores = np.empty(n)
     result = np.empty(n)
-    # fmax / fmin skip NaN like the pandas max / min of the reference, and give NaN (without warning) for all-NaN
+    max_indices = deque()
+    min_indices = deque()
+
+    # Ignore NaNs when computing extrema, matching pandas max/min. An empty
+    # deque represents a window in which every value is NaN.
     with np.errstate(divide='ignore', invalid='ignore'):
-        for i in range(n):
-            scores[i] = values[i] / np.fmax.reduce(values[starts[i] : i + 1]) - 1
-        for i in range(n):
-            result[i] = np.fmin.reduce(scores[starts[i] : i + 1])
+        for i, value in enumerate(values):
+            start = starts[i]
+            while max_indices and max_indices[0] < start:
+                max_indices.popleft()
+            if not np.isnan(value):
+                while max_indices and values[max_indices[-1]] <= value:
+                    max_indices.pop()
+                max_indices.append(i)
+
+            peak = values[max_indices[0]] if max_indices else np.nan
+            score = value / peak - 1
+            scores[i] = score
+
+            while min_indices and min_indices[0] < start:
+                min_indices.popleft()
+            if not np.isnan(score):
+                while min_indices and scores[min_indices[-1]] >= score:
+                    min_indices.pop()
+                min_indices.append(i)
+            result[i] = scores[min_indices[0]] if min_indices else np.nan
+
     return pd.Series(result, index=x.index)
 
 
