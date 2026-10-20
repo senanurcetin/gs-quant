@@ -59,4 +59,4 @@ def test_rich_print_shows_literal_brackets():
     rendered = output.getvalue()
     assert rendered.startswith("[call_tool ")
     assert "] using tool quote" in rendered
-    assert "\\\\" not in rendered
+    assert chr(92) not in rendered
