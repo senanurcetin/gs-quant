@@ -9,14 +9,12 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-# Portions copyright Senanur Çetin. Licensed under Apache 2.0 license
 #
 #
 # Chart Service will attempt to make public functions (not prefixed with _) from this module available. Such functions
 # should be fully documented: docstrings should describe parameters and the return value, and provide a 1-line
 # description. Type annotations should be provided for parameters.
 import math
-from collections import deque
 from enum import Enum, IntEnum
 from typing import Optional, Union
 
@@ -277,7 +275,7 @@ def returns(series: pd.Series, obs: Union[Window, int, str] = 1, type: Returns =
     Calculate returns from price series
 
     :param series: time series of prices
-    :param obs: number of observations or relative date e.g. 3d, 1w, 1m ( relative date should be of pattern \\d+[dmywDMYW] ).
+    :param obs: number of observations or relative date e.g. 3d, 1w, 1m ( relative date should be of pattern \d+[dmywDMYW] ).
     :param type: returns type: simple, logarithmic or absolute
     :return: date-based time series of return
 
@@ -1057,68 +1055,6 @@ def beta(x: pd.Series, b: pd.Series, w: Union[Window, int, str] = Window(None, 0
     return apply_ramp(interpolate(result, x, Interpolate.NAN), w)
 
 
-def _max_drawdown_date_window_reference(x: pd.Series, offset: pd.DateOffset) -> pd.Series:
-    """Straightforward definition of the rolling maximum drawdown over a relative date window. It scans the whole
-    series for every date, so it is O(n^2); _max_drawdown_date_window is the fast equivalent."""
-    scores = pd.Series(
-        [x[idx] / x.loc[(x.index > (idx - offset)) & (x.index <= idx)].max() - 1 for idx in x.index], index=x.index
-    )
-    return pd.Series(
-        [scores.loc[(scores.index > (idx - offset)) & (scores.index <= idx)].min() for idx in scores.index],
-        index=scores.index,
-    )
-
-
-def _max_drawdown_date_window(x: pd.Series, offset: pd.DateOffset) -> pd.Series:
-    """Rolling maximum drawdown in linear time for sorted, unique dates.
-
-    The date windows are (date - offset, date]. Monotonic deques track the
-    greatest observed price and then the smallest drawdown score in each
-    window. Each observation is inserted and removed at most once.
-    For indexes that are not sorted/unique, or windows whose starts move
-    backwards, use the reference implementation.
-    """
-    if not (x.index.is_monotonic_increasing and x.index.is_unique):
-        return _max_drawdown_date_window_reference(x, offset)
-
-    values = x.to_numpy(dtype=float)
-    n = len(values)
-    starts = np.minimum(x.index.searchsorted(x.index - offset, side='right'), np.arange(n))
-    if n > 1 and np.any(starts[1:] < starts[:-1]):
-        return _max_drawdown_date_window_reference(x, offset)
-
-    scores = np.empty(n)
-    result = np.empty(n)
-    max_indices = deque()
-    min_indices = deque()
-
-    # Ignore NaNs when computing extrema, matching pandas max/min. An empty
-    # deque represents a window in which every value is NaN.
-    with np.errstate(divide='ignore', invalid='ignore'):
-        for i, value in enumerate(values):
-            start = starts[i]
-            while max_indices and max_indices[0] < start:
-                max_indices.popleft()
-            if not np.isnan(value):
-                while max_indices and values[max_indices[-1]] <= value:
-                    max_indices.pop()
-                max_indices.append(i)
-
-            peak = values[max_indices[0]] if max_indices else np.nan
-            score = value / peak - 1
-            scores[i] = score
-
-            while min_indices and min_indices[0] < start:
-                min_indices.popleft()
-            if not np.isnan(score):
-                while min_indices and scores[min_indices[-1]] >= score:
-                    min_indices.pop()
-                min_indices.append(i)
-            result[i] = scores[min_indices[0]] if min_indices else np.nan
-
-    return pd.Series(result, index=x.index)
-
-
 @plot_function
 def max_drawdown(x: pd.Series, w: Union[Window, int, str] = Window(None, 0)) -> pd.Series:
     """
@@ -1147,7 +1083,13 @@ def max_drawdown(x: pd.Series, w: Union[Window, int, str] = Window(None, 0)) -> 
     w = normalize_window(x, w)
     if isinstance(w.w, pd.DateOffset):
         if pd.api.types.is_datetime64_dtype(x.index):
-            result = _max_drawdown_date_window(x, w.w)
+            scores = pd.Series(
+                [x[idx] / x.loc[(x.index > (idx - w.w)) & (x.index <= idx)].max() - 1 for idx in x.index], index=x.index
+            )
+            result = pd.Series(
+                [scores.loc[(scores.index > (idx - w.w)) & (scores.index <= idx)].min() for idx in scores.index],
+                index=scores.index,
+            )
         else:
             raise TypeError('Please pass in list of dates as index')
     else:
