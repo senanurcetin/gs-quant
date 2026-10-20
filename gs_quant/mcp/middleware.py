@@ -12,7 +12,6 @@ software distributed under the License is distributed on an
 KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
-Portions copyright Senanur Çetin. Licensed under Apache 2.0 license
 """
 
 import datetime as dt
@@ -67,13 +66,13 @@ class LocalUserAuthMiddleware(Middleware):
         call_next: CallNext[mt.CallToolRequestParams, ToolResult],
     ) -> ToolResult:
         tool_name = context.message.name
-        print(f"{_time_str()} \\[call_tool :hammer_and_wrench:] using tool [green]{tool_name}[/]")
+        print(f"{_time_str()} \[call_tool :hammer_and_wrench:] using tool [green]{tool_name}[/]")
         return await super().on_call_tool(context, call_next)
 
     async def on_list_tools(
         self, context: MiddlewareContext[mt.ListToolsRequest], call_next: CallNext[mt.ListToolsRequest, Sequence[Tool]]
     ) -> Sequence[Tool]:
-        print(f"{_time_str()} \\[tools/list :scroll:]")
+        print(f"{_time_str()} \[tools/list :scroll:]")
         return await call_next(context)
 
 
@@ -97,7 +96,7 @@ class RemoteUserAuthMiddleware(Middleware):
             time = (dt.datetime.now() - start).total_seconds() * 1000
             if session:
                 login = user_profile.get('login')
-                print(f"{_time_str()} \\[session] Created session for: [green]{login}[/] in {time:.2f} ms")
+                print(f"{_time_str()} \[session] Created session for: [green]{login}[/] in {time:.2f} ms")
                 # Put as non-serializable, so it is only available for the duration of the request
                 await context.fastmcp_context.set_state("user_profile", user_profile, serializable=False)
                 await context.fastmcp_context.set_state("user_session", session, serializable=False)
@@ -114,7 +113,7 @@ class RemoteUserAuthMiddleware(Middleware):
         login = user_profile.get('login') if user_profile else 'unknown'
         tool_name = context.message.name
         print(
-            f"{_time_str()} \\[{session_id}] \\[call_tool :hammer_and_wrench:] {login} using tool [green]{tool_name}[/]"
+            f"{_time_str()} \[{session_id}] \[call_tool :hammer_and_wrench:] {login} using tool [green]{tool_name}[/]"
         )
         return await call_next(context)
 
@@ -124,5 +123,5 @@ class RemoteUserAuthMiddleware(Middleware):
         user_profile = await context.fastmcp_context.get_state("user_profile")
         session_id = context.fastmcp_context.session_id
         login = user_profile.get('login') if user_profile else 'unknown'
-        print(f"{_time_str()} \\[{session_id}] \\[tools/list :scroll:] {login}")
+        print(f"{_time_str()} \[{session_id}] \[tools/list :scroll:] {login}")
         return await call_next(context)
