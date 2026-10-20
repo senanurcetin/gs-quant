@@ -1,0 +1,33 @@
+name: Verify GS Quant Python 3.10 and 3.13
+on:
+  push:
+    branches:
+      - verify/gs400-python310-313-20261021
+permissions:
+  contents: read
+jobs:
+  compatibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install package and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[test,mcp,app]" ruff
+      - name: Run full GS Quant regression suite
+        run: python -m pytest -q gs_quant/test --disable-warnings --maxfail=1
+      - name: Ruff changed source and tests
+        if: always()
+        run: |
+          git diff --name-only --diff-filter=ACMR bbe7071653ccfc0d431e11c3a31dbd511afc394f HEAD -- '*.py' | xargs -r python -m ruff check
