@@ -198,7 +198,8 @@ MIGRATED_DEFAULT_MODULES = (
 
 def test_no_default_argument_reads_the_clock_at_import_time():
     """A default such as `as_of: dt.date = dt.date.today()` is evaluated once, when the module is imported, so a
-    long-running process keeps using the day it started on. Check only the modules migrated in this PR;\n    scenario_utils.py is still unchanged upstream and is handled independently in draft PR #405."""
+    long-running process keeps using the day it started on. Check only the modules migrated in this PR;
+    scenario_utils.py is still unchanged upstream and is handled independently in draft PR #405."""
     root = Path(gs_quant.__file__).parent
     offenders = []
     for relative_name in MIGRATED_DEFAULT_MODULES:
