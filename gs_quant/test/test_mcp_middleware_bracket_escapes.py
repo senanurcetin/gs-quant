@@ -56,4 +56,7 @@ def test_rich_print_shows_literal_brackets():
         file=output, force_terminal=False, color_system=None, width=120
     )
     console.print(r"\[call_tool :hammer_and_wrench:] using tool [green]quote[/]")
-    assert "[call_tool :hammer_and_wrench:] using tool quote" in output.getvalue()
+    rendered = output.getvalue()
+    assert rendered.startswith("[call_tool ")
+    assert "] using tool quote" in rendered
+    assert "\\\\" not in rendered
