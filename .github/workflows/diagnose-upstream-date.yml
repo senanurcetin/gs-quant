@@ -18,11 +18,11 @@ jobs:
           python-version: '3.12'
       - name: Install baseline test requirements
         run: python -m pip install -e ".[test,mcp,app]"
-      - name: Record outcome on unmodified upstream production and test code
+      - name: Record both date-sensitive failures on unmodified upstream
         shell: bash
         run: |
           set +e
-          python -m pytest -q gs_quant/test/config/test_options.py::test_display_options --disable-warnings > /tmp/upstream-date-test.log 2>&1
+          python -m pytest -q gs_quant/test/config/test_options.py::test_display_options gs_quant/test/markets/test_instrument.py::test_instrument_resolve --disable-warnings > /tmp/upstream-date-test.log 2>&1
           code=$?
           set -e
           cat /tmp/upstream-date-test.log
