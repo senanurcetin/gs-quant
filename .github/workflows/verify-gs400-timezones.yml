@@ -22,7 +22,8 @@ jobs:
           python -m pip install -e ".[test,mcp,app]" ruff
       - name: Test isolated change
         run: python -m pytest -q gs_quant/test/timeseries/test_event_study.py gs_quant/test/timeseries/test_measures.py --disable-warnings --maxfail=1
-      - name: Full integration excluding independently diagnosed baseline date test
-        run: python -m pytest -q gs_quant/test --disable-warnings --maxfail=1 -k 'not test_display_options'
+      - name: Full integration suite (recheck after upstream test recovered)
+        run: python -m pytest -q gs_quant/test --disable-warnings --maxfail=1
       - name: Ruff touched source files
+        if: always()
         run: python -m ruff check gs_quant/timeseries/measures.py gs_quant/test/timeseries/test_event_study.py gs_quant/test/timeseries/test_measures.py
